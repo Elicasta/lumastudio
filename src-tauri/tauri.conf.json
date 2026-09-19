@@ -30,13 +30,13 @@
   "bundle": {
     "active": true,
     "targets": ["app", "dmg"],
-    "createUpdaterArtifacts": true,
+    "createUpdaterArtifacts": false,
+    "icon": ["icons/icon.png"],
     "category": "Music",
     "shortDescription": "Music, MIDI, video and lighting performance control.",
     "longDescription": "LumaRig Studio combines setlists, multitrack playback, musical sections, MIDI, video, pads and lighting control in one performance-first desktop application.",
     "macOS": {
-      "minimumSystemVersion": "12.0",
-      "signingIdentity": "-"
+      "minimumSystemVersion": "12.0"
     }
   },
   "plugins": {
