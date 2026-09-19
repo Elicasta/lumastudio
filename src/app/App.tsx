@@ -94,10 +94,9 @@ export function App() {
           {page === "setlist" && (
             <SetlistPage
               selected={selectedSong}
-              onSelect={(song) => {
-                setSelectedSong(song);
-                setPage("arrangement");
-              }}
+              audio={audio}
+              onSelect={setSelectedSong}
+              onOpenArrangement={() => setPage("arrangement")}
               onImport={() => setImportOpen(true)}
             />
           )}
@@ -276,73 +275,280 @@ function fmtClock(seconds: number) {
 
 function SetlistPage({
   selected,
+  audio,
   onSelect,
+  onOpenArrangement,
   onImport
 }: {
   selected: Song;
+  audio: AudioEngineController;
   onSelect: (song: Song) => void;
+  onOpenArrangement: () => void;
   onImport: () => void;
 }) {
+  const displayedTracks = selected.tracks.filter((track) =>
+    ["click", "guide", "drums", "bass", "keys", "guitar", "vocals", "other", "midi", "lighting", "video"].includes(track.kind)
+  );
+  const totalBars = Math.max(
+    ...selected.sections.map((section) => section.startBar + section.lengthBars - 1)
+  );
+  const playProgress = audio.hasLoadedAudio && (audio.status.durationSeconds ?? 0) > 0
+    ? Math.min(100, ((audio.status.positionSeconds ?? 0) / (audio.status.durationSeconds ?? 1)) * 100)
+    : 29;
+
   return (
-    <section>
-      <div className="page-head">
-        <div>
-          <h1>Sunday Morning</h1>
-          <p>8 songs · 42 min</p>
+    <section className="studio-dashboard">
+      <div className="dashboard-top">
+        <div className="panel dashboard-setlist">
+          <div className="dashboard-panel-head">
+            <div>
+              <h2>Setlist</h2>
+              <span>{demoSetlist.songs.length} Songs · 42 min</span>
+            </div>
+            <div className="head-actions">
+              <button className="primary compact" onClick={onImport}>
+                <Plus size={14} /> Add Song
+              </button>
+              <button className="compact">Reorder</button>
+              <button className="compact">•••</button>
+            </div>
+          </div>
+
+          <div className="dashboard-song-row header">
+            <span>#</span><span>Title</span><span>Artist</span><span>BPM</span><span>Key</span>
+            <span>Time</span><span>Tracks</span><span>Lights</span><span>Video</span><span>MIDI</span><span>Status</span>
+          </div>
+
+          {demoSetlist.songs.map((song, index) => (
+            <button
+              key={song.id}
+              className={selected.id === song.id ? "dashboard-song-row selected" : "dashboard-song-row"}
+              onClick={() => onSelect(song)}
+            >
+              <span className="song-number">{index + 1}</span>
+              <span className="song-title">{song.title}</span>
+              <span>{song.artist}</span>
+              <span>{song.bpm}</span>
+              <span>{song.key}</span>
+              <span>{fmt(song.durationSeconds)}</span>
+              <span><i className="mini green" /></span>
+              <span><i className="mini pink" /></span>
+              <span><i className="mini blue" /></span>
+              <span><i className="mini cyan" /></span>
+              <span className="ready">Ready</span>
+            </button>
+          ))}
         </div>
-        <button className="primary" onClick={onImport}>
-          <Plus size={16} /> Add Song
-        </button>
+
+        <div className="panel dashboard-now">
+          <div className="dashboard-panel-head">
+            <h2>Now Playing</h2>
+          </div>
+          <div className="now-song">
+            <div className="album-art">
+              <div className="album-glow" />
+              <Music2 size={24} />
+            </div>
+            <div>
+              <strong>{selected.title}</strong>
+              <span>{selected.artist}</span>
+              <span>Key: {selected.key} · BPM: {selected.bpm} · {selected.meter.join("/")}</span>
+            </div>
+          </div>
+          <div className="now-progress">
+            <div><span style={{ width: playProgress + "%" }} /></div>
+            <small>
+              {audio.hasLoadedAudio ? fmtClock(audio.status.positionSeconds ?? 0) : "1:24"} / {audio.hasLoadedAudio ? fmtClock(audio.status.durationSeconds ?? selected.durationSeconds) : fmt(selected.durationSeconds)}
+            </small>
+          </div>
+          <div className="now-controls">
+            <button><ChevronLeft size={18} /></button>
+            <button className="play-square" onClick={() => void audio.playPause()} disabled={!audio.hasLoadedAudio}>
+              <Play size={19} fill="currentColor" />
+            </button>
+            <button><ChevronRight size={18} /></button>
+          </div>
+          <div className="next-song-card">
+            <small>NEXT SONG</small>
+            <strong>{demoSetlist.songs[(demoSetlist.songs.findIndex((song) => song.id === selected.id) + 1) % demoSetlist.songs.length].title}</strong>
+            <span>{demoSetlist.songs[(demoSetlist.songs.findIndex((song) => song.id === selected.id) + 1) % demoSetlist.songs.length].bpm} BPM</span>
+          </div>
+        </div>
+
+        <div className="panel dashboard-master">
+          <div className="dashboard-panel-head"><h2>Master</h2></div>
+          <div className="master-meter-stage">
+            {[0.72, 0.91, 0.82, audio.status.peakLeft ?? 0.42].map((level, index) => (
+              <div className="vertical-meter" key={index}>
+                <i style={{ height: (level * 100) + "%" }} />
+              </div>
+            ))}
+            <div className="master-scale">
+              <strong>-6.2 dB</strong>
+              <span>0</span><span>-6</span><span>-12</span><span>-24</span><span>-60</span>
+            </div>
+          </div>
+          <div className="master-actions">
+            <button>M</button><button>DIM</button><button className="master-knob" aria-label="Master level" />
+          </div>
+        </div>
+
+        <div className="panel dashboard-sync">
+          <div className="dashboard-panel-head">
+            <h2>Global Tempo & Sync</h2>
+            <button className="bare">•••</button>
+          </div>
+          <label>
+            <span>Tempo</span>
+            <div className="sync-line"><strong>{selected.bpm.toFixed(1)}</strong><button>TAP</button></div>
+          </label>
+          <label>
+            <span>Time Signature</span>
+            <div className="sync-signature"><strong>{selected.meter[0]}</strong><b>/</b><strong>{selected.meter[1]}</strong></div>
+          </label>
+          <label>
+            <span>Metronome</span>
+            <div className="segmented">
+              <button className="active">Off</button><button>1 Bar</button><button>2 Bars</button><button>4 Bars</button>
+            </div>
+          </label>
+          <div className="sync-toggle"><span>Count-in</span><i /></div>
+          <div className="sync-toggle"><span>Follow Song Tempo</span><i className="on" /></div>
+        </div>
       </div>
 
-      <div className="panel setlist">
-        <div className="song-row header">
-          <span>#</span>
-          <span>Title</span>
-          <span>Artist</span>
-          <span>BPM</span>
-          <span>Key</span>
-          <span>Time</span>
-          <span>Audio</span>
-          <span>MIDI</span>
-          <span>Lighting</span>
-          <span>Video</span>
-          <span>Status</span>
+      <div className="panel dashboard-arrangement">
+        <div className="arrangement-toolbar">
+          <div className="arrangement-title">
+            <h2>Song Arrangement</h2>
+            <span>{selected.title}⌄</span>
+          </div>
+          <div className="arrangement-tools">
+            <button onClick={onOpenArrangement}>Edit</button>
+            <button>Zoom −</button><button>Zoom +</button><button>Snap: Bar⌄</button>
+          </div>
         </div>
-        {demoSetlist.songs.map((song, index) => (
-          <button
-            key={song.id}
-            className={selected.id === song.id ? "song-row selected" : "song-row"}
-            onClick={() => onSelect(song)}
-          >
-            <span>{index + 1}</span>
-            <span className="song-title">{song.title}</span>
-            <span>{song.artist}</span>
-            <span>{song.bpm}</span>
-            <span>{song.key}</span>
-            <span>{fmt(song.durationSeconds)}</span>
-            <span><i className="mini green" /></span>
-            <span><i className="mini purple" /></span>
-            <span><i className="mini amber" /></span>
-            <span><i className="mini blue" /></span>
-            <span className="ready">Ready</span>
-          </button>
-        ))}
+
+        <div className="arrangement-shell">
+          <div className="dashboard-timeline">
+            <div className="timeline-clock">
+              <span>0:00</span><span>0:30</span><span>1:00</span><span>1:30</span><span>2:00</span><span>2:30</span><span>3:00</span><span>4:00</span><span>{fmt(selected.durationSeconds)}</span>
+            </div>
+            <div className="dashboard-ruler">
+              {selected.sections.map((section) => (
+                <div
+                  key={section.id}
+                  style={{ flex: section.lengthBars, background: section.color }}
+                >
+                  {section.name.toUpperCase()}
+                </div>
+              ))}
+            </div>
+            {displayedTracks.map((track, index) => (
+              <div className="dashboard-track" key={track.id}>
+                <div className="dashboard-track-label">
+                  <button>S</button><button>M</button>
+                  <i style={{ background: track.color }} />
+                  <span>{track.name}</span>
+                </div>
+                <div className={"dashboard-lane lane-" + track.kind}>
+                  {track.kind === "lighting" ? (
+                    <LightingAutomation />
+                  ) : track.kind === "video" ? (
+                    <VideoLane />
+                  ) : (
+                    <Waveform seed={index + 8} color={track.color} />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="dashboard-section-inspector">
+            <div className="inspector-tabs"><button>Song</button><button className="active">Section</button></div>
+            <Field label="Section Name" value="Chorus 1" />
+            <Field label="Start" value="57.1.1" />
+            <Field label="End" value="73.1.1" />
+            <Field label="Length" value="16 bars" />
+            <Field label="Tempo" value="Follow Song" />
+            <Field label="Signature" value={selected.meter.join("/")} />
+            <Field label="Lighting Cue" value="Chorus Wide" />
+            <Field label="MIDI Patch" value="12 · Chorus" />
+            <Field label="Video Background" value="03" />
+            <button className="duplicate-section">Duplicate Section</button>
+          </div>
+        </div>
       </div>
 
-      <div className="now-playing panel">
-        <div>
-          <small>SELECTED SONG</small>
-          <strong>{selected.title}</strong>
-          <span>{selected.artist} · {selected.bpm} BPM · {selected.key}</span>
+      <div className="dashboard-bottom">
+        <div className="panel dashboard-pads">
+          <div className="dashboard-panel-head">
+            <h2>Pads</h2><button className="bare">•••</button>
+          </div>
+          <div className="mini-bank-tabs"><button className="active">Bank A</button><button>Bank B</button><button>Bank C</button><button>+</button></div>
+          <div className="mini-pad-grid">
+            {["Kick","Snare","Clap","Hat","Perc","Ride","Crash","Atmos","Bass","Piano","FX","Vocal"].map((name, index) => (
+              <button key={name} style={{ "--pad-color": ["#fb5c72","#f4ce53","#38e0b7","#36d2d7","#8058ef","#65a4ff","#46bfd7","#8f68ff","#fb5b72","#32d5bf","#8a58ef","#e65ad4"][index] } as React.CSSProperties}>
+                <span>{index + 1}</span><strong>{name}</strong>
+              </button>
+            ))}
+          </div>
         </div>
-        <div className="np-controls">
-          <ChevronLeft />
-          <button className="round"><Play size={18} fill="currentColor" /></button>
-          <ChevronRight />
+
+        <div className="panel dashboard-mini-mixer">
+          <div className="dashboard-panel-head">
+            <h2>Mixer</h2>
+            <span>🔒</span>
+          </div>
+          <div className="mini-mixer-channels">
+            {displayedTracks.filter((track) => !["midi","lighting","video"].includes(track.kind)).slice(0, 7).map((track, index) => (
+              <div className="mini-channel" key={track.id}>
+                <strong>{track.name}</strong>
+                <i className="channel-accent" style={{ background: track.color }} />
+                <div className="mini-meter"><span style={{ height: (38 + (index * 11) % 54) + "%" }} /></div>
+                <div className="mini-fader"><i style={{ bottom: (26 + (index * 7) % 48) + "%" }} /></div>
+                <div className="mini-channel-actions"><button>S</button><button>M</button></div>
+              </div>
+            ))}
+            <div className="mini-channel master">
+              <strong>Master</strong><i className="channel-accent" />
+              <div className="mini-meter"><span style={{ height: "82%" }} /></div>
+              <div className="mini-fader"><i style={{ bottom: "48%" }} /></div>
+              <div className="mini-channel-actions"><button>S</button><button>M</button></div>
+            </div>
+          </div>
         </div>
-        <div className="progress"><span style={{ width: "36%" }} /></div>
-        <span>1:54 / {fmt(selected.durationSeconds)}</span>
+
+        <div className="panel dashboard-connections">
+          <div className="dashboard-panel-head"><h2>Connections</h2><button className="bare">↗</button></div>
+          {[
+            ["Audio", audio.status.deviceName ?? "Default Output", audio.status.initialized],
+            ["MIDI", "IAC Driver", true],
+            ["LumaRig", "192.168.1.50", true],
+            ["Video", "NDI", true],
+            ["Remote", "iPad", true]
+          ].map(([name, detail, ok]) => (
+            <div className="connection-line" key={String(name)}>
+              <span className="connection-icon">{String(name).slice(0,1)}</span>
+              <strong>{String(name)} <small>({String(detail)})</small></strong>
+              <span className={ok ? "conn-ready" : "conn-idle"}>{ok ? "Connected" : "Idle"}</span>
+            </div>
+          ))}
+        </div>
+
+        <div className="panel dashboard-shortcuts">
+          <div className="dashboard-panel-head"><h2>Shortcuts</h2><button className="bare">•••</button></div>
+          {[
+            ["Space", "Play / Stop"],
+            ["→", "Next Section"],
+            ["←", "Previous Section"],
+            ["⌘ + 1", "Go to Section 1"],
+            ["⌘ + L", "Toggle Lights"],
+            ["⌘ + M", "Toggle Metronome"]
+          ].map(([key, action]) => (
+            <div className="shortcut-line" key={key + action}><kbd>{key}</kbd><span>{action}</span></div>
+          ))}
+        </div>
       </div>
     </section>
   );
