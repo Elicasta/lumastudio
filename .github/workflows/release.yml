@@ -51,5 +51,5 @@ jobs:
           releaseName: "LumaRig Studio v__VERSION__"
           releaseBody: "macOS DMG and signed updater artifacts for LumaRig Studio."
           releaseDraft: true
-          prerelease: true
+          prerelease: false
           args: "--target universal-apple-darwin"
