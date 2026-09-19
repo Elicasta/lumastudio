@@ -12,12 +12,14 @@ use tauri::State;
 pub use service::AudioService;
 use service::AudioTrackRequest;
 
+fn value<T: serde::Serialize>(input: T) -> Result<Value, String> {
+    serde_json::to_value(input).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
 pub fn audio_initialize(service: State<'_, AudioService>) -> Result<Value, String> {
-    service
-        .initialize()
-        .and_then(|status| serde_json::to_value(status).map_err(|error| error.into()))
-        .map_err(|error| error.to_string())
+    let status = service.initialize().map_err(|error| error.to_string())?;
+    value(status)
 }
 
 #[tauri::command]
@@ -30,34 +32,28 @@ pub fn audio_load_wav_song(
     tracks: Vec<AudioTrackRequest>,
     service: State<'_, AudioService>,
 ) -> Result<Value, String> {
-    service
+    let status = service
         .load_wav_song(tracks)
-        .and_then(|status| serde_json::to_value(status).map_err(|error| error.into()))
-        .map_err(|error| error.to_string())
+        .map_err(|error| error.to_string())?;
+    value(status)
 }
 
 #[tauri::command]
 pub fn audio_play(service: State<'_, AudioService>) -> Result<Value, String> {
-    service
-        .play()
-        .and_then(|status| serde_json::to_value(status).map_err(|error| error.into()))
-        .map_err(|error| error.to_string())
+    let status = service.play().map_err(|error| error.to_string())?;
+    value(status)
 }
 
 #[tauri::command]
 pub fn audio_pause(service: State<'_, AudioService>) -> Result<Value, String> {
-    service
-        .pause()
-        .and_then(|status| serde_json::to_value(status).map_err(|error| error.into()))
-        .map_err(|error| error.to_string())
+    let status = service.pause().map_err(|error| error.to_string())?;
+    value(status)
 }
 
 #[tauri::command]
 pub fn audio_stop(service: State<'_, AudioService>) -> Result<Value, String> {
-    service
-        .stop()
-        .and_then(|status| serde_json::to_value(status).map_err(|error| error.into()))
-        .map_err(|error| error.to_string())
+    let status = service.stop().map_err(|error| error.to_string())?;
+    value(status)
 }
 
 #[tauri::command]
@@ -65,10 +61,8 @@ pub fn audio_seek(
     seconds: f64,
     service: State<'_, AudioService>,
 ) -> Result<Value, String> {
-    service
-        .seek(seconds)
-        .and_then(|status| serde_json::to_value(status).map_err(|error| error.into()))
-        .map_err(|error| error.to_string())
+    let status = service.seek(seconds).map_err(|error| error.to_string())?;
+    value(status)
 }
 
 #[tauri::command]
