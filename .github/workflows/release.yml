@@ -11,6 +11,7 @@ jobs:
     permissions:
       contents: write
     runs-on: macos-latest
+
     steps:
       - uses: actions/checkout@v4
 
@@ -52,4 +53,4 @@ jobs:
           releaseBody: "macOS DMG and signed updater artifacts for LumaRig Studio."
           releaseDraft: true
           prerelease: false
-          args: "--target universal-apple-darwin"
+          args: "--target universal-apple-darwin --config src-tauri/tauri.release.conf.json"
