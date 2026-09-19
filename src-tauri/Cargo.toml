@@ -15,7 +15,7 @@ png = "0.18"
 
 [dependencies]
 arc-swap = "1.7"
-audioadapter-buffers = "4.0"
+audioadapter-buffers = "5.1"
 cpal = "0.18.2"
 hound = "3.5"
 rubato = { version = "5.0", features = ["fft_resampler"] }
