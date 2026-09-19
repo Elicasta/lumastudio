@@ -15,7 +15,7 @@ Generate this once on a trusted Mac:
 
 ```bash
 npm install
-npm run tauri signer generate -- -w ~/.tauri/lumarig-studio.key
+npx tauri signer generate -w ~/.tauri/lumarig-studio.key
 ```
 
 Back up the private key. Losing it means installed copies cannot trust future updates.
@@ -60,8 +60,8 @@ Do not create this manually:
 2. Merge to `main`.
 3. Push tag `vX.Y.Z`.
 4. GitHub Actions builds a universal macOS app, DMG and updater artifacts.
-5. Review the draft prerelease.
-6. Publish it.
+5. Review the draft release.
+6. Publish it as a normal release, not a prerelease.
 7. Installed clients check `releases/latest/download/latest.json`.
 
 The updater endpoint is already configured for `Elicasta/lumastudio`.
