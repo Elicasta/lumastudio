@@ -1,0 +1,50 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "LumaRig Studio",
+  "version": "0.1.0",
+  "identifier": "studio.lumarig.app",
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "LumaRig Studio",
+        "label": "main",
+        "width": 1540,
+        "height": 980,
+        "minWidth": 1100,
+        "minHeight": 720,
+        "resizable": true,
+        "fullscreen": false,
+        "backgroundColor": "#071019"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["app", "dmg"],
+    "createUpdaterArtifacts": false,
+    "icon": ["icons/icon.png"],
+    "category": "Music",
+    "shortDescription": "Music, MIDI, video and lighting performance control.",
+    "longDescription": "LumaRig Studio combines setlists, multitrack playback, musical sections, MIDI, video, pads and lighting control in one performance-first desktop application.",
+    "macOS": {
+      "minimumSystemVersion": "12.0"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "__TAURI_UPDATER_PUBLIC_KEY__",
+      "endpoints": [
+        "https://github.com/Elicasta/lumastudio/releases/latest/download/latest.json"
+      ]
+    }
+  }
+}
