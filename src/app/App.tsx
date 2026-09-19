@@ -24,6 +24,8 @@ import {
 import { demoSetlist, goodness } from "../domain/demo";
 import type { ImportStep, Page, Song } from "../domain/types";
 import { checkForAppUpdate } from "../services/updater";
+import { useAudioEngine, type AudioEngineController } from "../hooks/useAudioEngine";
+import type { NativeAudioStatus, NativeAudioTrack } from "../services/audio";
 
 const nav: Array<{ page: Page; label: string; icon: typeof Music2 }> = [
   { page: "setlist", label: "Setlist", icon: ListMusic },
@@ -46,15 +48,48 @@ function fmt(seconds: number) {
 export function App() {
   const [page, setPage] = useState<Page>("setlist");
   const [selectedSong, setSelectedSong] = useState<Song>(goodness);
-  const [playing, setPlaying] = useState(false);
+  const [previewPlaying, setPreviewPlaying] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [currentSection, setCurrentSection] = useState(4);
+  const audio = useAudioEngine();
+
+  function applyNativeTracks(
+    tracks: NativeAudioTrack[],
+    status: NativeAudioStatus
+  ) {
+    setSelectedSong((song) => ({
+      ...song,
+      title: song.title === "Goodness of God" ? "Imported Multitrack" : song.title,
+      artist: "Local Media",
+      durationSeconds: Math.ceil(status.durationSeconds ?? song.durationSeconds),
+      tracks: [
+        ...tracks.map((track) => ({
+          id: track.id,
+          name: track.name,
+          kind: track.kind,
+          color: track.color,
+          enabled: true,
+          muted: false,
+          solo: false,
+          gainDb: track.gainDb
+        })),
+        ...song.tracks.filter((track) =>
+          ["midi", "lighting", "video"].includes(track.kind)
+        )
+      ]
+    }));
+  }
 
   return (
     <div className="app-shell">
       <Sidebar page={page} onPage={setPage} />
       <main className="main">
-        <Transport song={selectedSong} playing={playing} onPlaying={setPlaying} />
+        <Transport
+          song={selectedSong}
+          previewPlaying={previewPlaying}
+          onPreviewPlaying={setPreviewPlaying}
+          audio={audio}
+        />
         <div className="workspace">
           {page === "setlist" && (
             <SetlistPage
@@ -75,7 +110,7 @@ export function App() {
             />
           )}
           {page === "pads" && <Pads />}
-          {page === "mixer" && <Mixer song={selectedSong} />}
+          {page === "mixer" && <Mixer song={selectedSong} audio={audio} />}
           {page === "lighting" && <Lighting song={selectedSong} />}
           {page === "midi" && (
             <UtilityPage
@@ -92,17 +127,29 @@ export function App() {
             />
           )}
           {page === "sources" && (
-            <UtilityPage
-              title="Sources"
-              icon={Upload}
-              text="Local audio, multitracks, sample library and YouTube Reference sources."
+            <Sources
+              audio={audio}
+              onLoaded={(tracks, status) => {
+                applyNativeTracks(tracks, status);
+                setPage("arrangement");
+              }}
             />
           )}
-          {page === "connections" && <Connections />}
-          {page === "settings" && <SettingsPage />}
+          {page === "connections" && <Connections audio={audio} />}
+          {page === "settings" && <SettingsPage audio={audio} />}
         </div>
       </main>
-      {importOpen && <ImportWizard onClose={() => setImportOpen(false)} />}
+      {importOpen && (
+        <ImportWizard
+          audio={audio}
+          onNativeLoaded={(tracks, status) => {
+            applyNativeTracks(tracks, status);
+            setImportOpen(false);
+            setPage("arrangement");
+          }}
+          onClose={() => setImportOpen(false)}
+        />
+      )}
     </div>
   );
 }
@@ -148,13 +195,34 @@ function Sidebar({
 
 function Transport({
   song,
-  playing,
-  onPlaying
+  previewPlaying,
+  onPreviewPlaying,
+  audio
 }: {
   song: Song;
-  playing: boolean;
-  onPlaying: (value: boolean) => void;
+  previewPlaying: boolean;
+  onPreviewPlaying: (value: boolean) => void;
+  audio: AudioEngineController;
 }) {
+  const playing = audio.hasLoadedAudio
+    ? Boolean(audio.status.playing)
+    : previewPlaying;
+
+  async function togglePlay() {
+    if (audio.hasLoadedAudio) {
+      await audio.playPause();
+    } else {
+      onPreviewPlaying(!previewPlaying);
+    }
+  }
+
+  async function stop() {
+    if (audio.hasLoadedAudio) {
+      await audio.stop();
+    } else {
+      onPreviewPlaying(false);
+    }
+  }
   return (
     <header className="transport">
       <div className="set-name">SUNDAY SET <span>⌄</span></div>
@@ -166,29 +234,44 @@ function Transport({
       <div className="meter">{song.meter[0]} / {song.meter[1]}</div>
       <button
         className={playing ? "transport-btn live" : "transport-btn"}
-        onClick={() => onPlaying(!playing)}
+        onClick={() => void togglePlay()}
       >
         <Play size={19} fill="currentColor" />
       </button>
-      <button className="transport-btn"><CircleStop size={18} /></button>
+      <button className="transport-btn" onClick={() => void stop()}>
+        <CircleStop size={18} />
+      </button>
       <div className="quantize">1 Bar ⌄</div>
       <div className="transport-spacer" />
-      <Status label="Audio" />
+      <Status
+        label={audio.hasLoadedAudio ? "Audio Live" : "Audio"}
+        ok={!audio.status.deviceError}
+      />
       <Status label="LumaRig" />
       <Status label="Remote" />
       <Gauge size={17} className="muted" />
-      <span className="cpu">CPU 12%</span>
+      <span className="cpu">
+        {audio.hasLoadedAudio
+          ? fmtClock(audio.status.positionSeconds ?? 0) + " / " +
+            fmtClock(audio.status.durationSeconds ?? 0)
+          : "CPU 12%"}
+      </span>
     </header>
   );
 }
 
-function Status({ label }: { label: string }) {
+function Status({ label, ok = true }: { label: string; ok?: boolean }) {
   return (
     <span className="status">
-      <span className="dot ok" />
+      <span className={ok ? "dot ok" : "dot bad"} />
       {label}
     </span>
   );
+}
+
+function fmtClock(seconds: number) {
+  const safe = Math.max(0, Math.floor(seconds));
+  return Math.floor(safe / 60) + ":" + String(safe % 60).padStart(2, "0");
 }
 
 function SetlistPage({
