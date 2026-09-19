@@ -596,33 +596,231 @@ function Pads() {
   );
 }
 
-function Mixer({ song }: { song: Song }) {
+function Sources({
+  audio,
+  onLoaded
+}: {
+  audio: AudioEngineController;
+  onLoaded: (tracks: NativeAudioTrack[], status: NativeAudioStatus) => void;
+}) {
+  async function loadMultitrack() {
+    const result = await audio.chooseAndLoad();
+    if (result) onLoaded(result.tracks, result.status);
+  }
+
+  return (
+    <section>
+      <div className="page-head">
+        <div>
+          <h1>Sources</h1>
+          <p>Local multitracks, licensed media and reference playback</p>
+        </div>
+        <button
+          className="primary"
+          disabled={audio.busy}
+          onClick={() => void loadMultitrack()}
+        >
+          <Upload size={16} />
+          {audio.busy ? "Loading…" : "Load WAV Stems"}
+        </button>
+      </div>
+
+      {audio.error && <div className="audio-error panel">{audio.error}</div>}
+
+      <div className="sources-grid">
+        <div className="panel source-card source-card-primary">
+          <AudioLines size={28} />
+          <div>
+            <small>REALTIME AUDIO</small>
+            <h2>Local Multitrack</h2>
+            <p>
+              Select aligned WAV stems. LumaRig Studio normalizes them to the
+              hardware sample rate before playback and starts every stem from
+              the same musical frame.
+            </p>
+          </div>
+          <button className="primary" onClick={() => void loadMultitrack()}>
+            Choose WAV Files
+          </button>
+        </div>
+
+        <div className="panel source-card">
+          <Clapperboard size={28} />
+          <div>
+            <small>REFERENCE ONLY</small>
+            <h2>YouTube Reference</h2>
+            <p>
+              Keep a rehearsal or arrangement reference beside the song.
+              Pitch processing, stem splitting and local warping stay on
+              licensed or local media.
+            </p>
+          </div>
+          <input
+            className="source-input"
+            placeholder="Paste YouTube reference URL"
+            aria-label="YouTube reference URL"
+          />
+        </div>
+
+        <div className="panel engine-card">
+          <div className="card-head">
+            <h3>Audio Engine</h3>
+            <span className={audio.status.initialized ? "ready" : "muted"}>
+              {audio.status.initialized ? "Online" : "Idle"}
+            </span>
+          </div>
+          <Field label="Device" value={audio.status.deviceName ?? "Not initialized"} />
+          <Field
+            label="Sample Rate"
+            value={audio.status.sampleRate ? audio.status.sampleRate.toLocaleString() + " Hz" : "—"}
+          />
+          <Field
+            label="Tracks"
+            value={String(audio.status.loadedTracks ?? 0)}
+          />
+          <Field
+            label="Duration"
+            value={fmtClock(audio.status.durationSeconds ?? 0)}
+          />
+        </div>
+      </div>
+
+      {audio.tracks.length > 0 && (
+        <div className="panel imported-tracks">
+          <div className="card-head">
+            <h3>Loaded Tracks</h3>
+            <span>{audio.tracks.length} aligned stems</span>
+          </div>
+          {audio.tracks.map((track, index) => (
+            <div className="imported-track" key={track.id}>
+              <span>{index + 1}</span>
+              <i style={{ background: track.color }} />
+              <strong>{track.name}</strong>
+              <span>{track.kind}</span>
+              <code>{track.path}</code>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Mixer({
+  song,
+  audio
+}: {
+  song: Song;
+  audio: AudioEngineController;
+}) {
+  const [mutedTracks, setMutedTracks] = useState<Set<string>>(new Set());
+  const [soloTracks, setSoloTracks] = useState<Set<string>>(new Set());
+
+  function toggleSet(
+    current: Set<string>,
+    id: string,
+    setter: (value: Set<string>) => void
+  ) {
+    const next = new Set(current);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    setter(next);
+    return next.has(id);
+  }
+
+  const audioTracks = song.tracks.filter(
+    (track) => !["lighting", "video", "midi"].includes(track.kind)
+  );
+
   return (
     <section>
       <div className="page-head">
         <div>
           <h1>Mixer</h1>
-          <p>{song.title}</p>
+          <p>
+            {song.title}
+            {audio.hasLoadedAudio
+              ? " · " + (audio.status.deviceName ?? "Native Output")
+              : " · preview controls"}
+          </p>
         </div>
+        {audio.hasLoadedAudio && (
+          <div className="master-readout">
+            <span>L</span>
+            <i style={{ width: ((audio.status.peakLeft ?? 0) * 100) + "%" }} />
+            <span>R</span>
+            <i style={{ width: ((audio.status.peakRight ?? 0) * 100) + "%" }} />
+          </div>
+        )}
       </div>
+
       <div className="mixer panel">
-        {song.tracks
-          .filter((track) => !["lighting", "video", "midi"].includes(track.kind))
-          .map((track, index) => (
+        {audioTracks.map((track, index) => {
+          const live = audio.tracks.some((nativeTrack) => nativeTrack.id === track.id);
+          const muted = mutedTracks.has(track.id);
+          const solo = soloTracks.has(track.id);
+
+          return (
             <div className="channel" key={track.id}>
               <strong style={{ color: track.color }}>{track.name}</strong>
               <div className="meter-bars">
-                <i style={{ height: 35 + (index * 8 % 55) + "%" }} />
-                <i style={{ height: 28 + (index * 11 % 60) + "%" }} />
+                <i
+                  style={{
+                    height: live && index === 0
+                      ? ((audio.status.peakLeft ?? 0) * 100) + "%"
+                      : "12%"
+                  }}
+                />
+                <i
+                  style={{
+                    height: live && index === 0
+                      ? ((audio.status.peakRight ?? 0) * 100) + "%"
+                      : "12%"
+                  }}
+                />
               </div>
-              <input type="range" min="-60" max="6" defaultValue={track.gainDb} />
-              <span>{track.gainDb.toFixed(1)} dB</span>
+
+              <input
+                type="range"
+                min="-60"
+                max="6"
+                step="0.5"
+                defaultValue={track.gainDb}
+                disabled={!live}
+                onChange={(event) => {
+                  if (live) {
+                    void audio.setTrackGain(track.id, Number(event.currentTarget.value));
+                  }
+                }}
+              />
+
+              <span>{live ? "Native" : "No media"}</span>
+
               <div>
-                <button>S</button>
-                <button>M</button>
+                <button
+                  className={solo ? "channel-toggle active" : "channel-toggle"}
+                  disabled={!live}
+                  onClick={() => {
+                    const next = toggleSet(soloTracks, track.id, setSoloTracks);
+                    void audio.setTrackSolo(track.id, next);
+                  }}
+                >
+                  S
+                </button>
+                <button
+                  className={muted ? "channel-toggle active danger" : "channel-toggle"}
+                  disabled={!live}
+                  onClick={() => {
+                    const next = toggleSet(mutedTracks, track.id, setMutedTracks);
+                    void audio.setTrackMuted(track.id, next);
+                  }}
+                >
+                  M
+                </button>
               </div>
             </div>
-          ))}
+          );
+        })}
       </div>
     </section>
   );
@@ -702,14 +900,20 @@ function Lighting({ song }: { song: Song }) {
   );
 }
 
-function Connections() {
+function Connections({ audio }: { audio: AudioEngineController }) {
   const cards = [
-    ["Audio I/O", "Universal Audio Apollo X", "48 kHz · 128 samples"],
+    [
+      "Audio I/O",
+      audio.status.deviceName ?? "Default system output",
+      audio.status.sampleRate
+        ? audio.status.sampleRate.toLocaleString() + " Hz · native engine"
+        : "Initialize by loading a multitrack"
+    ],
     ["MIDI", "LumaRig MIDI (Virtual)", "Clock + Start/Stop"],
-    ["Clock Sync", "Internal (LumaRig)", "120.00 BPM"],
-    ["Lighting", "LumaRig / Art-Net", "Universe 0 · 40 Hz"],
-    ["Remote Devices", "iPad Pro + iPhone", "2 connected"],
-    ["Network", "lumastudio.local", "OSC 8000 / 8001"]
+    ["Clock Sync", "Internal (LumaRig)", "Song tempo"],
+    ["Lighting", "LumaRig / Art-Net", "Platform adapter ready"],
+    ["Remote Devices", "iPad + iPhone", "Pairing planned"],
+    ["Network", "lumastudio.local", "OSC / remote transport"]
   ];
 
   return (
@@ -719,14 +923,20 @@ function Connections() {
           <h1>Connections</h1>
           <p>Audio, MIDI, lighting, network and remote integrations</p>
         </div>
-        <span className="ready"><span className="dot ok" /> All Systems Operational</span>
+        <span className="ready">
+          <span className="dot ok" /> Core Systems Ready
+        </span>
       </div>
       <div className="connection-grid">
-        {cards.map(([title, value, detail]) => (
+        {cards.map(([title, value, detail], index) => (
           <div className="panel connection-card" key={title}>
             <div className="card-head">
               <h3>{title}</h3>
-              <span className="ready">Connected</span>
+              <span className={index === 0 && !audio.status.initialized ? "muted" : "ready"}>
+                {index === 0
+                  ? audio.status.initialized ? "Connected" : "Idle"
+                  : index < 4 ? "Configured" : "Planned"}
+              </span>
             </div>
             <strong>{value}</strong>
             <p>{detail}</p>
@@ -738,7 +948,7 @@ function Connections() {
   );
 }
 
-function SettingsPage() {
+function SettingsPage({ audio }: { audio: AudioEngineController }) {
   const [message, setMessage] = useState(
     "Updater ready after signing keys are configured."
   );
@@ -763,9 +973,20 @@ function SettingsPage() {
       <div className="settings-grid">
         <div className="panel settings-card">
           <h3>Audio Engine</h3>
-          <Field label="Sample Rate" value="48,000 Hz" />
-          <Field label="Buffer" value="128 samples" />
-          <Field label="Master Output" value="Output 1–2" />
+          <Field
+            label="Sample Rate"
+            value={audio.status.sampleRate
+              ? audio.status.sampleRate.toLocaleString() + " Hz"
+              : "Device default"}
+          />
+          <Field
+            label="Audio Device"
+            value={audio.status.deviceName ?? "Not initialized"}
+          />
+          <Field
+            label="Loaded Tracks"
+            value={String(audio.status.loadedTracks ?? 0)}
+          />
         </div>
 
         <div className="panel settings-card">
@@ -831,11 +1052,24 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ImportWizard({ onClose }: { onClose: () => void }) {
+function ImportWizard({
+  audio,
+  onNativeLoaded,
+  onClose
+}: {
+  audio: AudioEngineController;
+  onNativeLoaded: (tracks: NativeAudioTrack[], status: NativeAudioStatus) => void;
+  onClose: () => void;
+}) {
   const steps: ImportStep[] = ["source", "analyze", "stems", "sections", "review"];
   const [step, setStep] = useState<ImportStep>("source");
   const index = steps.indexOf(step);
   const next = () => setStep(steps[Math.min(steps.length - 1, index + 1)]);
+
+  async function importMultitrack() {
+    const result = await audio.chooseAndLoad();
+    if (result) onNativeLoaded(result.tracks, result.status);
+  }
 
   return (
     <div className="modal-backdrop">
@@ -865,13 +1099,20 @@ function ImportWizard({ onClose }: { onClose: () => void }) {
               <Upload size={34} />
               <h3>Drop a song here</h3>
               <p>WAV, MP3, M4A or a licensed multitrack folder</p>
-              <button className="primary" onClick={next}>Choose File</button>
+              <button
+                className="primary"
+                disabled={audio.busy}
+                onClick={() => void importMultitrack()}
+              >
+                {audio.busy ? "Loading…" : "Choose WAV Stems"}
+              </button>
             </div>
+            {audio.error && <div className="audio-error">{audio.error}</div>}
             <div className="source-options">
-              <button onClick={next}>
+              <button disabled={audio.busy} onClick={() => void importMultitrack()}>
                 <Upload />
                 <strong>Import Multitrack</strong>
-                <span>Individual stems</span>
+                <span>Aligned WAV stems · real native playback</span>
               </button>
               <button onClick={next}>
                 <WandSparkles />
