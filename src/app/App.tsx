@@ -22,9 +22,10 @@ import {
   WandSparkles
 } from "lucide-react";
 import { demoSetlist, goodness } from "../domain/demo";
-import type { ImportStep, Page, Song } from "../domain/types";
+import type { CountInSettings, ImportStep, Page, Song } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import {
+  musicalPositionAtSeconds,
   planManualSectionJump,
   planSongCountIn,
   sectionIndexAtSeconds,
@@ -424,7 +425,6 @@ export function App() {
             <Performance
               song={selectedSong}
               current={currentSection}
-              onCurrent={setCurrentSection}
               nextSong={adjacentSong(demoSetlist, selectedSong.id, 1)}
               onNextSong={(song) => void selectSetlistSong(song)}
               remoteOnline={remote.status === "online"}
@@ -523,23 +523,28 @@ function Transport({
   previewPlaying,
   onPreviewPlaying,
   audio,
-  remoteOnline
+  remoteOnline,
+  onStart,
+  onPause
 }: {
   song: Song;
   previewPlaying: boolean;
   onPreviewPlaying: (value: boolean) => void;
   audio: AudioEngineController;
   remoteOnline: boolean;
+  onStart: () => Promise<void>;
+  onPause: () => Promise<void>;
 }) {
   const playing = audio.hasLoadedAudio
     ? Boolean(audio.status.playing)
     : previewPlaying;
+  const counting = Boolean(audio.status.countInActive);
 
   async function togglePlay() {
-    if (audio.hasLoadedAudio) {
-      await audio.playPause();
+    if (playing || counting) {
+      await onPause();
     } else {
-      onPreviewPlaying(!previewPlaying);
+      await onStart();
     }
   }
 
@@ -550,6 +555,13 @@ function Transport({
       onPreviewPlaying(false);
     }
   }
+
+  const countLabel = counting
+    ? audio.status.countInBeat
+      ? "COUNT " + audio.status.countInBeat + "/" + (audio.status.countInTotal ?? 0)
+      : "COUNT READY"
+    : "1 Bar ⌄";
+
   return (
     <header className="transport">
       <div className="set-name">SUNDAY SET <span>⌄</span></div>
@@ -560,15 +572,16 @@ function Transport({
       </div>
       <div className="meter">{song.meter[0]} / {song.meter[1]}</div>
       <button
-        className={playing ? "transport-btn live" : "transport-btn"}
+        className={playing || counting ? "transport-btn live" : "transport-btn"}
         onClick={() => void togglePlay()}
+        aria-label={counting ? "Cancel count-in" : playing ? "Pause" : "Play"}
       >
         <Play size={19} fill="currentColor" />
       </button>
       <button className="transport-btn" onClick={() => void stop()}>
         <CircleStop size={18} />
       </button>
-      <div className="quantize">1 Bar ⌄</div>
+      <div className={counting ? "quantize counting" : "quantize"}>{countLabel}</div>
       <div className="transport-spacer" />
       <Status
         label={audio.hasLoadedAudio ? "Audio Live" : "Audio"}
@@ -975,10 +988,40 @@ function SongsPage({
   );
 }
 
-function Arrangement({ song }: { song: Song }) {
+function Arrangement({
+  song,
+  onSongChange
+}: {
+  song: Song;
+  onSongChange: (song: Song) => void;
+}) {
+  const [selectedSectionIndex, setSelectedSectionIndex] = useState(
+    Math.min(4, Math.max(0, song.sections.length - 1))
+  );
+  const selectedSection =
+    song.sections[Math.min(selectedSectionIndex, song.sections.length - 1)];
   const totalBars = Math.max(
     ...song.sections.map((section) => section.startBar + section.lengthBars - 1)
   );
+
+  function setSongCountIn(settings: CountInSettings) {
+    onSongChange({ ...song, countIn: settings });
+  }
+
+  function setManualJumpCountIn(settings: CountInSettings) {
+    onSongChange({ ...song, manualJumpCountIn: settings });
+  }
+
+  function setSectionCountIn(settings?: CountInSettings) {
+    onSongChange({
+      ...song,
+      sections: song.sections.map((section, index) =>
+        index === selectedSectionIndex
+          ? { ...section, countInOverride: settings }
+          : section
+      )
+    });
+  }
 
   return (
     <section className="arrange-page">
@@ -995,21 +1038,77 @@ function Arrangement({ song }: { song: Song }) {
         </div>
       </div>
 
+      <div className="count-in-settings panel">
+        <div>
+          <small>SONG START</small>
+          <strong>Count-In</strong>
+          <span>Establish tempo before beat 1. This pre-roll does not move the Song timeline.</span>
+        </div>
+        <div className="count-options">
+          <button
+            className={song.countIn.mode === "none" ? "active" : ""}
+            onClick={() => setSongCountIn({ mode: "none" })}
+          >
+            Off
+          </button>
+          <button
+            className={song.countIn.mode === "bars" && song.countIn.value === 1 ? "active" : ""}
+            onClick={() => setSongCountIn({ mode: "bars", value: 1 })}
+          >
+            1 Bar
+          </button>
+          <button
+            className={song.countIn.mode === "bars" && song.countIn.value === 2 ? "active" : ""}
+            onClick={() => setSongCountIn({ mode: "bars", value: 2 })}
+          >
+            2 Bars
+          </button>
+          <button
+            className={song.countIn.mode === "beats" && song.countIn.value === 4 ? "active" : ""}
+            onClick={() => setSongCountIn({ mode: "beats", value: 4 })}
+          >
+            4 Beats
+          </button>
+        </div>
+        <div className="manual-jump-setting">
+          <small>MANUAL SECTION JUMP</small>
+          <button
+            className={song.manualJumpCountIn.mode === "adaptive" ? "active" : ""}
+            onClick={() =>
+              setManualJumpCountIn({ mode: "adaptive", minBeats: 2 })
+            }
+          >
+            Adaptive
+          </button>
+          <button
+            className={song.manualJumpCountIn.mode === "none" ? "active" : ""}
+            onClick={() => setManualJumpCountIn({ mode: "none" })}
+          >
+            No Count
+          </button>
+        </div>
+      </div>
+
       <div className="timeline panel">
         <div className="section-ruler">
           <div className="track-label ruler-label">SECTIONS</div>
           <div className="ruler-content">
-            {song.sections.map((section) => (
-              <div
+            {song.sections.map((section, index) => (
+              <button
                 key={section.id}
-                className="section-block"
+                className={
+                  index === selectedSectionIndex
+                    ? "section-block selected"
+                    : "section-block"
+                }
+                onClick={() => setSelectedSectionIndex(index)}
                 style={{
                   width: (section.lengthBars / totalBars * 100) + "%",
                   background: section.color
                 }}
               >
                 {section.name}
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -1034,17 +1133,63 @@ function Arrangement({ song }: { song: Song }) {
         ))}
       </div>
 
-      <div className="inspector panel">
-        <div>
-          <small>SECTION</small>
-          <strong>Chorus 2</strong>
-          <span>Bars 57–72 · 16 bars</span>
+      {selectedSection && (
+        <div className="inspector panel">
+          <div>
+            <small>SECTION</small>
+            <strong>{selectedSection.name}</strong>
+            <span>
+              Bars {selectedSection.startBar}–
+              {selectedSection.startBar + selectedSection.lengthBars - 1} ·
+              {selectedSection.lengthBars} bars
+            </span>
+          </div>
+          <Field label="Lighting Cue" value={selectedSection.lightingCue ?? "None"} />
+          <Field label="MIDI Patch" value={selectedSection.midiPatch ?? "None"} />
+          <Field label="Video" value={selectedSection.videoCue ?? "None"} />
+          <Field label="Follow" value="Automatic Timeline" />
+
+          <div className="section-count-editor">
+            <small>MANUAL JUMP COUNT-IN</small>
+            <div>
+              <button
+                className={!selectedSection.countInOverride ? "active" : ""}
+                onClick={() => setSectionCountIn(undefined)}
+              >
+                Song Default
+              </button>
+              <button
+                className={selectedSection.countInOverride?.mode === "none" ? "active" : ""}
+                onClick={() => setSectionCountIn({ mode: "none" })}
+              >
+                None
+              </button>
+              <button
+                className={
+                  selectedSection.countInOverride?.mode === "bars" &&
+                  selectedSection.countInOverride.value === 1
+                    ? "active"
+                    : ""
+                }
+                onClick={() => setSectionCountIn({ mode: "bars", value: 1 })}
+              >
+                1 Bar
+              </button>
+              <button
+                className={
+                  selectedSection.countInOverride?.mode === "beats" &&
+                  selectedSection.countInOverride.value === 4
+                    ? "active"
+                    : ""
+                }
+                onClick={() => setSectionCountIn({ mode: "beats", value: 4 })}
+              >
+                4 Beats
+              </button>
+            </div>
+          </div>
         </div>
-        <Field label="Lighting Cue" value="Chorus Wide" />
-        <Field label="MIDI Patch" value="12 · Chorus" />
-        <Field label="Video" value="03 · Chorus BG" />
-        <Field label="Follow" value="Next Section" />
-      </div>
+      )}
     </section>
   );
 }
@@ -1088,29 +1233,45 @@ function VideoLane() {
 function Performance({
   song,
   current,
-  onCurrent,
   nextSong,
   onNextSong,
   remoteOnline,
-  remoteClients
+  remoteClients,
+  audio,
+  queuedManualSection,
+  onLaunchSection
 }: {
   song: Song;
   current: number;
-  onCurrent: (value: number) => void;
   nextSong: Song | null;
   onNextSong: (song: Song) => void;
   remoteOnline: boolean;
   remoteClients: number;
+  audio: AudioEngineController;
+  queuedManualSection: number | null;
+  onLaunchSection: (index: number) => void;
 }) {
   const active = song.sections[Math.min(current, song.sections.length - 1)];
-  const next = song.sections[Math.min(current + 1, song.sections.length - 1)];
+  const automaticNextIndex = Math.min(current + 1, song.sections.length - 1);
+  const nextIndex = queuedManualSection ?? automaticNextIndex;
+  const next = song.sections[nextIndex];
+  const musicalPosition = musicalPositionAtSeconds(
+    song,
+    audio.status.positionSeconds ?? sectionStartSeconds(song, current)
+  );
+  const countActive = Boolean(audio.status.countInActive);
+  const queued = queuedManualSection !== null
+    ? song.sections[queuedManualSection]
+    : null;
 
   return (
     <section className="performance-page">
       <div className="page-head">
         <div>
           <h1>Performance</h1>
-          <p>{song.title} · {song.bpm} BPM · {song.key}</p>
+          <p>
+            {song.title} · {song.bpm} BPM · {song.key} · Sections follow the timeline automatically
+          </p>
         </div>
         <span className="performance-lock">
           <Activity size={15} /> LIVE SAFE
@@ -1121,32 +1282,80 @@ function Performance({
         {song.sections.map((section, index) => (
           <button
             key={section.id}
-            className={index === current ? "section-card current" : "section-card"}
-            onClick={() => onCurrent(index)}
+            className={
+              index === current
+                ? "section-card current"
+                : index === queuedManualSection
+                  ? "section-card queued"
+                  : "section-card"
+            }
+            onClick={() => onLaunchSection(index)}
           >
             <strong>{section.name}</strong>
-            <span>{section.lengthBars} Bars</span>
+            <span>
+              {index === queuedManualSection
+                ? "Queued override"
+                : section.lengthBars + " Bars"}
+            </span>
           </button>
         ))}
       </div>
 
+      {countActive && (
+        <div className="count-in-live panel">
+          <div>
+            <small>MANUAL TRANSITION</small>
+            <strong>{queued ? "→ " + queued.name : "COUNT-IN"}</strong>
+          </div>
+          <div className="count-number">
+            {audio.status.countInBeat
+              ? audio.status.countInBeat
+              : "•"}
+            <span>/ {audio.status.countInTotal ?? 0}</span>
+          </div>
+          <p>Landing on beat 1</p>
+        </div>
+      )}
+
       <div className="performance-grid">
         <div className="hero-cue panel">
-          <small>CURRENT SECTION</small>
+          <small>CURRENT SECTION · AUTO</small>
           <h2>{active.name}</h2>
-          <p>Bar {active.startBar + 4} / {active.startBar + active.lengthBars - 1}</p>
-          <div className="hero-progress"><span style={{ width: "42%" }} /></div>
+          <p>
+            Bar {musicalPosition.bar} · Beat {musicalPosition.beat} ·
+            {musicalPosition.bpm} BPM
+          </p>
+          <div className="hero-progress">
+            <span
+              style={{
+                width:
+                  Math.min(
+                    100,
+                    ((musicalPosition.bar - active.startBar +
+                      (musicalPosition.beat - 1) / musicalPosition.meter[0]) /
+                      Math.max(1, active.lengthBars)) *
+                      100
+                  ) + "%"
+              }}
+            />
+          </div>
         </div>
         <div className="next-cue panel">
-          <small>NEXT SECTION</small>
+          <small>{queued ? "QUEUED OVERRIDE" : "NEXT SECTION · AUTO"}</small>
           <h3>{next.name}</h3>
-          <p>{next.lengthBars} bars</p>
+          <p>
+            {queued
+              ? "Count-in calculated from the current beat"
+              : next.lengthBars + " bars"}
+          </p>
         </div>
         <div className="live-status panel">
           <h3>Live Status</h3>
-          <Status label="Audio Engine" />
+          <Status
+            label={countActive ? "Count-In Active" : "Timeline Auto-Follow"}
+          />
+          <Status label="Audio Engine" ok={!audio.status.deviceError} />
           <Status label="MIDI Clock" ok={false} />
-          <Status label="LumaRig Lighting" ok={false} />
           <Status
             label={
               remoteClients > 0
@@ -1159,27 +1368,43 @@ function Performance({
       </div>
 
       <div className="go-row">
-        <button onClick={() => onCurrent(Math.max(0, current - 1))}>
+        <button
+          disabled={current <= 0 || countActive}
+          onClick={() => onLaunchSection(Math.max(0, current - 1))}
+        >
           <ChevronLeft /> Previous Section
         </button>
         <button
           className="go"
-          onClick={() => onCurrent(Math.min(song.sections.length - 1, current + 1))}
+          disabled={countActive || current >= song.sections.length - 1}
+          onClick={() => onLaunchSection(automaticNextIndex)}
         >
           GO
+          <small>MANUAL OVERRIDE</small>
         </button>
         <button
-          onClick={() => onCurrent(Math.min(song.sections.length - 1, current + 1))}
+          disabled={countActive || current >= song.sections.length - 1}
+          onClick={() => onLaunchSection(automaticNextIndex)}
         >
-          Next Section <ChevronRight />
+          Jump Next <ChevronRight />
         </button>
+      </div>
+
+      <div className="auto-follow-note">
+        Normal playback changes sections automatically. Use the section strip or
+        GO only when you want to override the arrangement.
       </div>
 
       <div className="song-advance panel">
         <div>
           <small>NEXT SONG</small>
           <strong>{nextSong?.title ?? "End of Set"}</strong>
-          <span>{nextSong ? nextSong.artist + " · " + nextSong.bpm + " BPM · " + nextSong.key : "No song queued after this one"}</span>
+          <span>
+            {nextSong
+              ? nextSong.artist + " · " + nextSong.bpm + " BPM · " + nextSong.key +
+                " · " + countInLabel(nextSong)
+              : "No song queued after this one"}
+          </span>
         </div>
         <button
           className="next-song-control"
@@ -1191,6 +1416,18 @@ function Performance({
       </div>
     </section>
   );
+}
+
+function countInLabel(song: Song) {
+  if (song.countIn.mode === "none") return "No count-in";
+  if (song.countIn.mode === "bars") {
+    const bars = song.countIn.value ?? 1;
+    return bars + (bars === 1 ? " bar count-in" : " bars count-in");
+  }
+  if (song.countIn.mode === "beats") {
+    return (song.countIn.value ?? song.meter[0]) + " beat count-in";
+  }
+  return "Adaptive count-in";
 }
 
 const padNames = [
