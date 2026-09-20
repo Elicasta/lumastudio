@@ -23,8 +23,8 @@ fn value<T: serde::Serialize>(input: T) -> Result<Value, String> {
 
 
 #[tauri::command]
-pub fn audio_load_pad(index: usize, path: String, looped: bool, gain_db: f32, width: f32, octave: i32, service: State<'_, AudioService>) -> Result<(), String> {
-    service.load_pad(index, &path, looped, gain_db, width, octave).map_err(|error| error.to_string())
+pub fn audio_load_pad(index: usize, path: String, looped: bool, gain_db: f32, width: f32, octave: i32, attack_ms: u64, release_ms: u64, service: State<'_, AudioService>) -> Result<(), String> {
+    service.load_pad(index, &path, looped, gain_db, width, octave, attack_ms, release_ms).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
