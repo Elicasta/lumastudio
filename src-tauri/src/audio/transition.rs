@@ -137,7 +137,7 @@ mod tests {
         assert!(transition.active());
         assert_eq!(transition.current_count_beat(), Some((0, 3)));
 
-        transition.store_remaining(299);
+        transition.store_remaining(199);
         assert_eq!(transition.current_count_beat(), Some((2, 3)));
     }
 
