@@ -203,6 +203,7 @@ async function rotatePairCode(body: Record<string, unknown>) {
       .update({
         pair_code: pairCode,
         pair_expires_at: pairExpiresAt,
+        paired_count: 0,
         last_seen_at: new Date().toISOString(),
       })
       .eq("id", sessionId)
