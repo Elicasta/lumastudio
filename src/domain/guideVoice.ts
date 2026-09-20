@@ -142,15 +142,15 @@ export function planGuideCount({
     ? Math.min(total, safePulsesPerBar)
     : total;
   const firstSpokenAbsolutePulse = total - spokenPulses + 1;
-  const firstBeatInBar =
-    ((firstSpokenAbsolutePulse - 1) % safePulsesPerBar) + 1;
-
   const events: GuideCueEvent[] = [];
 
   for (let slot = 0; slot < spokenPulses; slot += 1) {
     const absolutePulse = firstSpokenAbsolutePulse + slot;
-    const beatInBar = ((absolutePulse - 1) % safePulsesPerBar) + 1;
     const offsetPulses = absolutePulse - total - 1;
+    const beatInBar =
+      ((offsetPulses % safePulsesPerBar) + safePulsesPerBar) %
+        safePulsesPerBar +
+      1;
 
     if (slot === 0 && announceSection && destination) {
       const sectionToken = sectionTokenForName(destination.name);
@@ -171,20 +171,6 @@ export function planGuideCount({
       spokenText: String(beatInBar),
       role: "count"
     });
-  }
-
-  // If the first available pulse is beat 1 and there was no usable Section
-  // token, make sure the spoken count starts with "1".
-  if (
-    events.length > 0 &&
-    events[0].role !== "section" &&
-    firstBeatInBar === 1
-  ) {
-    events[0] = {
-      ...events[0],
-      token: countToken(1),
-      spokenText: "1"
-    };
   }
 
   return {
