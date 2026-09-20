@@ -48,6 +48,17 @@ describe("musical timing", () => {
     expect(plan.targetSectionId).toBe("chorus1");
   });
 
+  it("takes a clean barline immediately without an unnecessary count", () => {
+    const plan = planManualSectionJump(
+      goodness,
+      0,
+      goodness.sections[2]
+    );
+
+    expect(plan.countBeats).toBe(0);
+    expect(plan.launchAfterSeconds).toBe(0);
+  });
+
   it("adds another bar if a late tap would not provide enough count-in", () => {
     const oneBeat = 60 / 63;
     // Beat 4, halfway through leaves no clean count beats before the barline.
