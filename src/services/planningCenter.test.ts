@@ -106,6 +106,38 @@ describe("Planning Center service import", () => {
     expect(result.link.items).toHaveLength(2);
   });
 
+  it("keeps repeated Planning Center song occurrences as unique Studio entries", () => {
+    const repeatedRaw: Parameters<typeof mapPlanningCenterPlan>[0] = {
+      ...raw,
+      items: {
+        ...raw.items,
+        data: [
+          ...raw.items!.data!,
+          {
+            ...raw.items!.data![0],
+            id: "item-3",
+            attributes: {
+              ...raw.items!.data![0].attributes,
+              sequence: 3
+            }
+          }
+        ]
+      }
+    };
+
+    const result = mapPlanningCenterPlan(
+      repeatedRaw,
+      { id: "service-1", name: "Sunday AM" },
+      [existing],
+      false
+    );
+
+    expect(result.songs).toHaveLength(2);
+    expect(result.songs[0].id).toBe("local-holy");
+    expect(result.songs[1].id).not.toBe("local-holy");
+    expect(result.songs[1].tracks).toHaveLength(1);
+  });
+
   it("creates a needs-review placeholder for a new Planning Center song", () => {
     const result = mapPlanningCenterPlan(
       raw,
