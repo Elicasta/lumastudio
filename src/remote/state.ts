@@ -109,6 +109,7 @@ export function buildRemoteStudioState({
       durationSeconds,
       bar: musicalPosition.bar,
       beat: musicalPosition.beat,
+      transitionActive: Boolean(audioStatus.transitionActive),
       countInActive: Boolean(audioStatus.countInActive),
       countInBeat: audioStatus.countInBeat ?? 0,
       countInTotal: audioStatus.countInTotal ?? 0,
