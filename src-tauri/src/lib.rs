@@ -27,6 +27,7 @@ pub fn run() {
             audio::audio_schedule_transition,
             audio::audio_set_bus_gain,
             audio::audio_set_bus_muted,
+            audio::audio_set_bus_route,
             audio::audio_cancel_transition
         ])
         .run(tauri::generate_context!())
