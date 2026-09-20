@@ -9,7 +9,7 @@ use super::{
         load_voice_pack, GuideTimelineEventRequest, GuideTransitionEventRequest,
     },
     media::{load_wav_track, WavTrackRequest},
-    model::SongMix,
+    model::{SongMix, TrackBus},
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -22,6 +22,12 @@ pub struct AudioTrackRequest {
     pub gain_db: f32,
     #[serde(default)]
     pub start_seconds: f64,
+    #[serde(default = "default_track_bus")]
+    pub bus: String,
+}
+
+fn default_track_bus() -> String {
+    "music".into()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -99,6 +105,9 @@ impl AudioService {
             let start_frame =
                 (request.start_seconds.max(0.0) * sample_rate as f64).round() as u64;
 
+            let bus = TrackBus::from_id(&request.bus)
+                .ok_or_else(|| AudioError::BusNotFound(request.bus.clone()))?;
+
             tracks.push(load_wav_track(
                 &WavTrackRequest {
                     id: request.id,
@@ -106,6 +115,7 @@ impl AudioService {
                     path: request.path,
                     gain_db: request.gain_db,
                     start_frame,
+                    bus,
                 },
                 sample_rate,
             )?);
