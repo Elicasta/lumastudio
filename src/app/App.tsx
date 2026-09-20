@@ -1275,6 +1275,118 @@ function Arrangement({
         </div>
       </div>
 
+      <div className="guide-settings panel">
+        <div>
+          <small>GUIDE SYSTEM</small>
+          <strong>Reusable Count + Voice</strong>
+          <span>
+            Automatic Section cues and manual overrides use the same loaded voice pack.
+          </span>
+        </div>
+
+        <div className="guide-setting-group">
+          <small>OUTPUT</small>
+          <div>
+            {([
+              ["voice-and-click", "Voice + Click"],
+              ["click-only", "Click Only"],
+              ["voice-only", "Voice Only"],
+              ["off", "Off"]
+            ] as const).map(([mode, label]) => (
+              <button
+                key={mode}
+                className={song.guideVoice.outputMode === mode ? "active" : ""}
+                onClick={() =>
+                  onSongChange({
+                    ...song,
+                    guideVoice: {
+                      ...song.guideVoice,
+                      outputMode: mode
+                    }
+                  })
+                }
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="guide-setting-group">
+          <small>SECTION CUES</small>
+          <div>
+            <button
+              className={song.guideVoice.sectionCues === "automatic" ? "active" : ""}
+              onClick={() =>
+                onSongChange({
+                  ...song,
+                  guideVoice: {
+                    ...song.guideVoice,
+                    sectionCues: "automatic"
+                  }
+                })
+              }
+            >
+              Automatic
+            </button>
+            <button
+              className={song.guideVoice.sectionCues === "off" ? "active" : ""}
+              onClick={() =>
+                onSongChange({
+                  ...song,
+                  guideVoice: {
+                    ...song.guideVoice,
+                    sectionCues: "off"
+                  }
+                })
+              }
+            >
+              Off
+            </button>
+          </div>
+        </div>
+
+        <div className="guide-setting-group">
+          <small>COUNT FEEL</small>
+          <div>
+            <button
+              className={song.guideVoice.countFeel === "notated" ? "active" : ""}
+              onClick={() =>
+                onSongChange({
+                  ...song,
+                  guideVoice: {
+                    ...song.guideVoice,
+                    countFeel: "notated"
+                  }
+                })
+              }
+            >
+              Notated
+            </button>
+            <button
+              className={song.guideVoice.countFeel === "compound" ? "active" : ""}
+              onClick={() =>
+                onSongChange({
+                  ...song,
+                  guideVoice: {
+                    ...song.guideVoice,
+                    countFeel: "compound"
+                  }
+                })
+              }
+            >
+              Compound
+            </button>
+          </div>
+        </div>
+
+        <div className="guide-pack-label">
+          <small>VOICE PACK</small>
+          <strong>{song.guideVoice.voicePackId}</strong>
+          <span>Long pre-rolls voice only the final bar by default.</span>
+        </div>
+      </div>
+
       <div className="timeline panel">
         <div className="section-ruler">
           <div className="track-label ruler-label">SECTIONS</div>
