@@ -154,6 +154,7 @@ export function useAudioEngine() {
     firstCountDelaySeconds: number;
     beatSeconds: number;
     countBeats: number;
+    pulsesPerBar: number;
     clickEnabled: boolean;
     keepAudio: boolean;
     guideEvents?: Array<{
