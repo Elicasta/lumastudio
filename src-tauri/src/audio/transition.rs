@@ -9,6 +9,7 @@ pub struct ScheduledTransition {
     first_count_delay_frames: AtomicU64,
     beat_frames: AtomicU64,
     count_beats: AtomicU64,
+    pulses_per_bar: AtomicU64,
     click_enabled: AtomicBool,
     keep_audio: AtomicBool,
 }
@@ -22,6 +23,7 @@ pub struct TransitionSnapshot {
     pub first_count_delay_frames: u64,
     pub beat_frames: u64,
     pub count_beats: u64,
+    pub pulses_per_bar: u64,
     pub click_enabled: bool,
     pub keep_audio: bool,
 }
@@ -42,6 +44,7 @@ impl ScheduledTransition {
             first_count_delay_frames: AtomicU64::new(0),
             beat_frames: AtomicU64::new(0),
             count_beats: AtomicU64::new(0),
+            pulses_per_bar: AtomicU64::new(4),
             click_enabled: AtomicBool::new(true),
             keep_audio: AtomicBool::new(false),
         }
@@ -54,6 +57,7 @@ impl ScheduledTransition {
         first_count_delay_frames: u64,
         beat_frames: u64,
         count_beats: u64,
+        pulses_per_bar: u64,
         click_enabled: bool,
         keep_audio: bool,
     ) {
@@ -66,6 +70,8 @@ impl ScheduledTransition {
             .store(first_count_delay_frames.min(total_frames), Ordering::Release);
         self.beat_frames.store(beat_frames, Ordering::Release);
         self.count_beats.store(count_beats, Ordering::Release);
+        self.pulses_per_bar
+            .store(pulses_per_bar.max(1), Ordering::Release);
         self.click_enabled.store(click_enabled, Ordering::Release);
         self.keep_audio.store(keep_audio, Ordering::Release);
         self.active.store(true, Ordering::Release);
@@ -91,6 +97,7 @@ impl ScheduledTransition {
                 .load(Ordering::Acquire),
             beat_frames: self.beat_frames.load(Ordering::Acquire),
             count_beats: self.count_beats.load(Ordering::Acquire),
+            pulses_per_bar: self.pulses_per_bar.load(Ordering::Acquire).max(1),
             click_enabled: self.click_enabled.load(Ordering::Acquire),
             keep_audio: self.keep_audio.load(Ordering::Acquire),
         }
@@ -106,7 +113,7 @@ impl ScheduledTransition {
         self.active.store(false, Ordering::Release);
     }
 
-    pub fn current_count_beat(&self) -> Option<(u64, u64)> {
+    pub fn current_count_position(&self) -> Option<(u64, u64, u64, u64)> {
         let snapshot = self.snapshot();
         if !snapshot.active || snapshot.count_beats == 0 || snapshot.beat_frames == 0 {
             return None;
@@ -117,19 +124,50 @@ impl ScheduledTransition {
             .saturating_sub(snapshot.remaining_frames);
 
         if elapsed < snapshot.first_count_delay_frames {
-            return Some((0, snapshot.count_beats));
+            return Some((0, snapshot.pulses_per_bar, 0, count_bar_total(snapshot)));
         }
 
         let counted_elapsed = elapsed - snapshot.first_count_delay_frames;
-        let index = counted_elapsed / snapshot.beat_frames;
+        let index = (counted_elapsed / snapshot.beat_frames)
+            .min(snapshot.count_beats.saturating_sub(1));
+        let beat = count_beat_number(snapshot, index);
+        let first_beat = count_beat_number(snapshot, 0);
+        let absolute_slot = (first_beat - 1).saturating_add(index);
+        let bar = absolute_slot / snapshot.pulses_per_bar + 1;
 
-        if index >= snapshot.count_beats {
-            Some((snapshot.count_beats, snapshot.count_beats))
-        } else {
-            Some((index + 1, snapshot.count_beats))
-        }
+        Some((
+            beat,
+            snapshot.pulses_per_bar,
+            bar,
+            count_bar_total(snapshot),
+        ))
     }
 }
+
+fn count_beat_number(snapshot: TransitionSnapshot, index: u64) -> u64 {
+    let pulses = snapshot.pulses_per_bar.max(1);
+    let remainder = snapshot.count_beats % pulses;
+    let first_beat = if remainder == 0 {
+        1
+    } else {
+        pulses - remainder + 1
+    };
+
+    ((first_beat - 1 + index) % pulses) + 1
+}
+
+fn count_bar_total(snapshot: TransitionSnapshot) -> u64 {
+    let pulses = snapshot.pulses_per_bar.max(1);
+    let remainder = snapshot.count_beats % pulses;
+    let first_beat = if remainder == 0 {
+        1
+    } else {
+        pulses - remainder + 1
+    };
+    let occupied_slots = first_beat - 1 + snapshot.count_beats;
+    (occupied_slots + pulses - 1) / pulses
+}
+
 
 #[cfg(test)]
 mod tests {
@@ -138,22 +176,51 @@ mod tests {
     #[test]
     fn schedules_and_reports_count_progress() {
         let transition = ScheduledTransition::new();
-        transition.schedule(1000, 400, 100, 100, 3, true, true);
+        transition.schedule(1000, 400, 100, 100, 3, 4, true, true);
 
         assert!(transition.active());
-        assert_eq!(transition.current_count_beat(), Some((0, 3)));
+        assert_eq!(transition.current_count_position(), Some((0, 4, 0, 1)));
 
         transition.store_remaining(199);
-        assert_eq!(transition.current_count_beat(), Some((2, 3)));
+        assert_eq!(transition.current_count_position(), Some((3, 4, 1, 1)));
+    }
+
+    #[test]
+    fn partial_count_preserves_musical_beat_numbers() {
+        let transition = ScheduledTransition::new();
+        transition.schedule(1000, 200, 0, 100, 2, 4, true, true);
+
+        assert_eq!(
+            transition.current_count_position(),
+            Some((3, 4, 1, 1))
+        );
+
+        transition.store_remaining(99);
+        assert_eq!(
+            transition.current_count_position(),
+            Some((4, 4, 1, 1))
+        );
+    }
+
+    #[test]
+    fn two_bar_count_restarts_at_beat_one() {
+        let transition = ScheduledTransition::new();
+        transition.schedule(1000, 800, 0, 100, 8, 4, true, true);
+
+        transition.store_remaining(399);
+        assert_eq!(
+            transition.current_count_position(),
+            Some((1, 4, 2, 2))
+        );
     }
 
     #[test]
     fn cancel_clears_active_transition() {
         let transition = ScheduledTransition::new();
-        transition.schedule(1000, 400, 0, 100, 4, true, false);
+        transition.schedule(1000, 400, 0, 100, 4, 4, true, false);
         transition.cancel();
 
         assert!(!transition.active());
-        assert_eq!(transition.current_count_beat(), None);
+        assert_eq!(transition.current_count_position(), None);
     }
 }
