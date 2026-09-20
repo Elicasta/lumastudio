@@ -156,10 +156,41 @@ impl AudioEngine {
 
     pub fn replace_song(&self, mix: SongMix) {
         self.realtime.transition.cancel();
+        self.clear_transition_guide();
         self.realtime.transport.pause();
         self.realtime.transport.seek_frame(0);
         self.realtime.mix.store(Arc::new(mix));
         self.realtime.meter.store_peaks(0.0, 0.0);
+    }
+
+    pub fn replace_voice_pack(&self, pack: VoicePack) {
+        self.realtime.voice_pack.store(Arc::new(pack));
+        self.clear_guide_timeline();
+        self.clear_transition_guide();
+    }
+
+    pub fn set_guide_timeline(
+        &self,
+        requests: &[GuideTimelineEventRequest],
+    ) -> Result<(), AudioError> {
+        let revision = self.next_guide_revision();
+        let pack = self.realtime.voice_pack.load();
+        let schedule = if requests.is_empty() {
+            GuideSchedule {
+                revision,
+                events: Vec::new(),
+            }
+        } else if pack.loaded() {
+            prepare_timeline(requests, &pack, self.sample_rate, revision)?
+        } else {
+            GuideSchedule {
+                revision,
+                events: Vec::new(),
+            }
+        };
+
+        self.realtime.guide_timeline.store(Arc::new(schedule));
+        Ok(())
     }
 
     pub fn play(&self) {
@@ -203,7 +234,8 @@ impl AudioEngine {
         beat_seconds: f64,
         count_beats: u64,
         keep_audio: bool,
-    ) {
+        guide_events: &[GuideTransitionEventRequest],
+    ) -> Result<(), AudioError> {
         let mix = self.realtime.mix.load();
         let target_frame = seconds_to_frame(
             target_seconds.max(0.0),
@@ -214,6 +246,31 @@ impl AudioEngine {
         let first_count_delay_frames =
             seconds_to_frame(first_count_delay_seconds.max(0.0), self.sample_rate);
         let beat_frames = seconds_to_frame(beat_seconds.max(0.0), self.sample_rate);
+        let revision = self.next_guide_revision();
+        let pack = self.realtime.voice_pack.load();
+        let guide_schedule = if guide_events.is_empty() {
+            GuideSchedule {
+                revision,
+                events: Vec::new(),
+            }
+        } else if pack.loaded() {
+            prepare_transition(
+                guide_events,
+                &pack,
+                total_frames,
+                beat_frames,
+                revision,
+            )?
+        } else {
+            GuideSchedule {
+                revision,
+                events: Vec::new(),
+            }
+        };
+
+        self.realtime
+            .transition_guide
+            .store(Arc::new(guide_schedule));
 
         self.realtime.transition.schedule(
             target_frame,
@@ -223,10 +280,56 @@ impl AudioEngine {
             count_beats,
             keep_audio,
         );
+
+        Ok(())
     }
 
     pub fn cancel_transition(&self) {
         self.realtime.transition.cancel();
+        self.clear_transition_guide();
+    }
+
+    pub fn set_bus_gain_db(&self, id: &str, gain_db: f32) -> Result<(), AudioError> {
+        self.bus(id)?.set_gain_db(gain_db);
+        Ok(())
+    }
+
+    pub fn set_bus_muted(&self, id: &str, muted: bool) -> Result<(), AudioError> {
+        self.bus(id)?.set_muted(muted);
+        Ok(())
+    }
+
+    fn bus(&self, id: &str) -> Result<&BusControl, AudioError> {
+        match id {
+            "music" => Ok(&self.realtime.music_bus),
+            "click" => Ok(&self.realtime.click_bus),
+            "guide" => Ok(&self.realtime.guide_bus),
+            "master" => Ok(&self.realtime.master_bus),
+            _ => Err(AudioError::BusNotFound(id.to_owned())),
+        }
+    }
+
+    fn next_guide_revision(&self) -> u64 {
+        self.realtime
+            .guide_revision
+            .fetch_add(1, Ordering::AcqRel)
+            .saturating_add(1)
+    }
+
+    fn clear_guide_timeline(&self) {
+        let revision = self.next_guide_revision();
+        self.realtime.guide_timeline.store(Arc::new(GuideSchedule {
+            revision,
+            events: Vec::new(),
+        }));
+    }
+
+    fn clear_transition_guide(&self) {
+        let revision = self.next_guide_revision();
+        self.realtime.transition_guide.store(Arc::new(GuideSchedule {
+            revision,
+            events: Vec::new(),
+        }));
     }
 
     pub fn set_loop_seconds(&self, start_seconds: f64, end_seconds: f64) {
