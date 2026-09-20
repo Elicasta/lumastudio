@@ -17,6 +17,13 @@ describe("musical timing", () => {
     ).toBe(2);
   });
 
+  it("anchors the musical grid to a detected downbeat", () => {
+    const offsetSong = { ...goodness, downbeatSeconds: 0.842 };
+
+    expect(sectionStartSeconds(offsetSong, 0)).toBeCloseTo(0.842, 5);
+    expect(planSongCountIn(offsetSong).targetSeconds).toBeCloseTo(0.842, 5);
+  });
+
   it("derives the current bar and beat automatically", () => {
     const oneBeat = 60 / 63;
     const position = musicalPositionAtSeconds(goodness, oneBeat * 5.5);
