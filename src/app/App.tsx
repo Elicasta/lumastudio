@@ -79,7 +79,7 @@ export function App() {
   const [page, setPage] = useState<Page>("show");
   const [buildTool, setBuildTool] = useState<BuildTool>("arrangement");
   const [showTool, setShowTool] = useState<ShowTool>("setlist");
-  const [project, setProject] = useState(() => createProject("Sunday Set", setlist.songs));
+  const [project, setProject] = useState(() => createProject("Sunday Set", demoSetlist.songs));
   const [projectPath, setProjectPath] = useState<string | undefined>();
   const [selectedSong, setSelectedSong] = useState<Song>(goodness);
   const [previewPlaying, setPreviewPlaying] = useState(false);
@@ -339,7 +339,7 @@ export function App() {
         case "song.previous": {
           const direction = message.command === "song.next" ? 1 : -1;
           const song = adjacentSong(
-            demoSetlist,
+            project.setlist,
             selectedSong.id,
             direction as -1 | 1
           );
@@ -354,7 +354,7 @@ export function App() {
 
         case "song.select": {
           const id = String(message.payload?.id ?? "");
-          const song = setlist.songs.find((item) => item.id === id);
+          const song = project.setlist.songs.find((item) => item.id === id);
           if (!song) return reject("Song not found in the active Setlist.");
           await selectSetlistSong(song);
           return ok();
@@ -437,21 +437,22 @@ export function App() {
       audio.tracks,
       selectSetlistSong,
       selectedSong.id,
-      selectedSong.sections
+      selectedSong.sections,
+      project.setlist
     ]
   );
 
   const remoteState = useMemo(
     () =>
       buildRemoteStudioState({
-        setlist: demoSetlist,
+        setlist: project.setlist,
         song: selectedSong,
         currentSectionIndex: currentSection,
         previewPlaying,
         audioStatus: audio.status,
         queuedSectionIndex: queuedManualSection
       }),
-    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong]
+    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong, project.setlist]
   );
 
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
