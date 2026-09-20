@@ -1,0 +1,120 @@
+export type RemoteCommand =
+  | "transport.play"
+  | "transport.pause"
+  | "transport.stop"
+  | "transport.go"
+  | "transport.previous"
+  | "transport.next"
+  | "section.launch"
+  | "song.next"
+  | "song.previous"
+  | "song.select"
+  | "pad.trigger"
+  | "pad.release"
+  | "mixer.gain"
+  | "mixer.mute"
+  | "mixer.solo"
+  | "lighting.blackout"
+  | "lighting.scene"
+  | "lighting.xy";
+
+export interface RemoteCommandEnvelope {
+  type: "command";
+  id: string;
+  command: RemoteCommand;
+  payload?: Record<string, unknown>;
+}
+
+export interface RemoteSectionState {
+  id: string;
+  name: string;
+  startBar: number;
+  lengthBars: number;
+}
+
+export interface RemoteSetlistSongState {
+  id: string;
+  title: string;
+  artist: string;
+  bpm: number;
+  key: string;
+  meter: [number, number];
+  durationSeconds: number;
+  status: "ready" | "needs-review" | "processing";
+  current: boolean;
+}
+
+export interface RemoteStudioState {
+  revision: number;
+  setlist: {
+    id: string;
+    name: string;
+    songs: RemoteSetlistSongState[];
+  };
+  song: {
+    id: string;
+    title: string;
+    artist: string;
+    bpm: number;
+    key: string;
+    meter: [number, number];
+  };
+  sections: RemoteSectionState[];
+  currentSectionIndex: number;
+  queuedSectionIndex: number | null;
+  transport: {
+    playing: boolean;
+    positionSeconds: number;
+    durationSeconds: number;
+    bar: number;
+    beat: number;
+  };
+  pads: Array<{
+    id: string;
+    name: string;
+    active: boolean;
+    color: string;
+  }>;
+  mixer: Array<{
+    id: string;
+    name: string;
+    gainDb: number;
+    muted: boolean;
+    solo: boolean;
+    meter: number;
+    color: string;
+  }>;
+  lighting: {
+    blackout: boolean;
+    scenes: Array<{
+      id: string;
+      name: string;
+      color: string;
+      active: boolean;
+    }>;
+    x: number;
+    y: number;
+  };
+  health: {
+    audio: boolean;
+    midi: boolean;
+    lighting: boolean;
+    remote: boolean;
+  };
+}
+
+export interface RemoteCommandAck {
+  id: string;
+  ok: boolean;
+  error?: string;
+}
+
+export function isRemoteCommandEnvelope(value: unknown): value is RemoteCommandEnvelope {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<RemoteCommandEnvelope>;
+  return (
+    candidate.type === "command" &&
+    typeof candidate.id === "string" &&
+    typeof candidate.command === "string"
+  );
+}
