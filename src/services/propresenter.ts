@@ -8,6 +8,7 @@ export interface ProPresenterConnectionSettings {
 }
 
 export interface ProPresenterGroupState {
+  id: string;
   name: string;
   index: number;
   startIndex: number;
@@ -94,8 +95,10 @@ export function parseProPresenterSnapshot(raw: RawSnapshot): ProPresenterLiveSta
   let cursor = 0;
   rawGroups.forEach((group, index) => {
     const slides = enabledSlides(group);
+    const groupId = object(group.id);
     groups.push({
-      name: stringValue(group.name, `Group ${index + 1}`) ?? `Group ${index + 1}`,
+      id: stringValue(groupId.uuid, groupId.id, group.uuid, group.id, group.name, String(index)) ?? String(index),
+      name: stringValue(groupId.name, group.name, `Group ${index + 1}`) ?? `Group ${index + 1}`,
       index,
       startIndex: cursor,
       slideCount: slides.length
@@ -174,5 +177,5 @@ export const proPresenterNext = (host: string, port: number) =>
 export const proPresenterPrevious = (host: string, port: number) =>
   invoke<void>("propresenter_previous", { host, port });
 
-export const proPresenterTriggerGroup = (host: string, port: number, group: string) =>
-  invoke<void>("propresenter_trigger_group", { host, port, group });
+export const proPresenterTriggerGroup = (host: string, port: number, groupId: string) =>
+  invoke<void>("propresenter_trigger_group", { host, port, groupId });
