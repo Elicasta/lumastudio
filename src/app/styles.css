@@ -1702,3 +1702,28 @@ button:hover { border-color: #47657d; background: #172a39; }
     grid-column:1 / -1;
   }
 }
+
+.bus-route {
+  grid-column:1 / -1;
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:5px;
+}
+.bus-route label {
+  display:grid;
+  grid-template-columns:auto 1fr;
+  gap:4px;
+  align-items:center;
+  color:#607988;
+  font-size:7px;
+}
+.bus-route select {
+  min-width:0;
+  height:26px;
+  border:1px solid #29404e;
+  border-radius:5px;
+  background:#07131b;
+  color:#b9cbd5;
+  font-size:7px;
+  padding:0 4px;
+}
