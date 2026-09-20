@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 import {
   Activity,
   AudioLines,
@@ -166,7 +166,7 @@ function Sidebar({
         <div className="brand-mark">L</div>
         <div>
           <strong>LUMARIG</strong>
-          <span>STUDIO</span>
+          <span>STUDIO · BETA 0.2.0</span>
         </div>
       </div>
       <nav>
@@ -488,7 +488,7 @@ function SetlistPage({
           <div className="mini-bank-tabs"><button className="active">Bank A</button><button>Bank B</button><button>Bank C</button><button>+</button></div>
           <div className="mini-pad-grid">
             {["Kick","Snare","Clap","Hat","Perc","Ride","Crash","Atmos","Bass","Piano","FX","Vocal"].map((name, index) => (
-              <button key={name} style={{ "--pad-color": ["#fb5c72","#f4ce53","#38e0b7","#36d2d7","#8058ef","#65a4ff","#46bfd7","#8f68ff","#fb5b72","#32d5bf","#8a58ef","#e65ad4"][index] } as React.CSSProperties}>
+              <button key={name} style={{ "--pad-color": ["#fb5c72","#f4ce53","#38e0b7","#36d2d7","#8058ef","#65a4ff","#46bfd7","#8f68ff","#fb5b72","#32d5bf","#8a58ef","#e65ad4"][index] } as CSSProperties}>
                 <span>{index + 1}</span><strong>{name}</strong>
               </button>
             ))}
