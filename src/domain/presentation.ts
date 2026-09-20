@@ -43,7 +43,7 @@ export function duePresentationCues(
 export function cueIdsBeforePosition(song: Song, positionSeconds: number) {
   return new Set(
     presentationAutomation(song).cues
-      .filter((cue) => effectiveCueTime(song, cue) <= positionSeconds)
+      .filter((cue) => effectiveCueTime(song, cue) < positionSeconds - 0.001)
       .map((cue) => cue.id)
   );
 }
