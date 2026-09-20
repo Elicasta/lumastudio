@@ -16,7 +16,8 @@ export interface ProPresenterController {
   refresh: () => Promise<ProPresenterLiveState>;
   next: () => Promise<void>;
   previous: () => Promise<void>;
-  triggerGroup: (group: string) => Promise<void>;
+  triggerGroup: (groupId: string) => Promise<void>;
+  syncSection: (sectionName: string) => Promise<boolean>;
 }
 
 const offlineState: ProPresenterLiveState = { connected: false, groups: [] };
@@ -58,7 +59,8 @@ export function useProPresenter(
   }, [refresh, settings.enabled]);
 
   useEffect(() => {
-    if (!settings.enabled || !settings.followSections || !state.connected) return;
+    const mode = song.presentation?.mode ?? "manual";
+    if (!settings.enabled || !settings.followSections || mode === "manual" || !state.connected) return;
 
     const section = song.sections[currentSectionIndex];
     if (!section || !state.presentationName) return;
@@ -108,5 +110,32 @@ export function useProPresenter(
     await refresh();
   }, [refresh, settings.host, settings.port]);
 
-  return { state, refresh, next, previous, triggerGroup };
+  const syncSection = useCallback(async (sectionName: string) => {
+    if (!settings.enabled || !settings.followSections || !state.connected || !state.presentationName) {
+      return false;
+    }
+    const studioSong = normalizeProPresenterName(song.title);
+    const presenterSong = normalizeProPresenterName(state.presentationName);
+    if (!studioSong || studioSong !== presenterSong) return false;
+    const target = findMatchingProPresenterGroup(sectionName, state.groups);
+    if (!target) return false;
+    await proPresenterTriggerGroup(settings.host, settings.port, target.id);
+    await refresh();
+    lastTriggeredRef.current = [song.id, sectionName, state.presentationId ?? state.presentationName, target.name].join(":");
+    return true;
+  }, [
+    refresh,
+    settings.enabled,
+    settings.followSections,
+    settings.host,
+    settings.port,
+    song.id,
+    song.title,
+    state.connected,
+    state.groups,
+    state.presentationId,
+    state.presentationName
+  ]);
+
+  return { state, refresh, next, previous, triggerGroup, syncSection };
 }
