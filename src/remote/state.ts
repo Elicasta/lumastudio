@@ -1,6 +1,6 @@
 import type { Setlist, Song } from "../domain/types";
 import type { NativeAudioStatus } from "../services/audio";
-import type { RemoteStudioState } from "./protocol";
+import { REMOTE_PROTOCOL_VERSION, type RemoteStudioState } from "./protocol";
 
 const padNames = [
   "Warmth",
@@ -62,6 +62,7 @@ export function buildRemoteStudioState({
   );
 
   return {
+    protocolVersion: REMOTE_PROTOCOL_VERSION,
     revision: 0,
     setlist: {
       id: setlist.id,
