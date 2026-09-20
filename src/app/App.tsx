@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Activity,
   AudioLines,
@@ -31,6 +31,8 @@ import { fullscreenVideoOutput, openVideoOutput } from "../services/videoOutput"
 import { listenVideoOutputRequests, publishVideoOutputState } from "../services/videoOutputState";
 import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
+import { sectionCueDispatch } from "../domain/cues";
+import { dispatchSectionCue } from "../services/cueDispatcher";
 import {
   buildAutomaticGuideTimeline,
   countPulseForSection,
@@ -92,6 +94,7 @@ export function App() {
   const [currentSection, setCurrentSection] = useState(4);
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const audio = useAudioEngine();
+  const lastDispatchedSectionRef = useRef<string | null>(null);
 
   useEffect(() => {
     void publishVideoOutputState({
@@ -484,6 +487,19 @@ export function App() {
 
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
   const lumarig = useLumaRig();
+
+  useEffect(() => {
+    const section = selectedSong.sections[currentSection];
+    if (!section) return;
+    const key = selectedSong.id + ":" + section.id;
+    if (lastDispatchedSectionRef.current === key) return;
+    lastDispatchedSectionRef.current = key;
+    const cue = sectionCueDispatch(selectedSong, section);
+    void dispatchSectionCue(cue, {
+      video: project.video,
+      sendLumaRig: lumarig.state === "connected" ? (command) => lumarig.send(command) : undefined
+    });
+  }, [selectedSong, currentSection, project.video, lumarig.state, lumarig.send]);
 
   useEffect(() => {
     setProject((current) => ({
