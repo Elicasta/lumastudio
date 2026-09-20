@@ -273,6 +273,7 @@ export function planManualSectionJump(
         firstCountAfterSeconds + countBeats * targetBeatSeconds,
       countBeats,
       beatSeconds: targetBeatSeconds,
+      pulsesPerBar: targetPulse.pulsesPerBar,
       firstCountAfterSeconds,
       sourceBar: current.bar,
       sourceBeat: current.beat,
