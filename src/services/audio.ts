@@ -2,6 +2,32 @@ import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { TrackKind } from "../domain/types";
 
+export interface NativeAudioBusStatus {
+  gainDb: number;
+  muted: boolean;
+}
+
+export interface NativeVoicePackInfo {
+  id: string;
+  name: string;
+  locale: string;
+  voice: string;
+  version: number;
+  assetCount: number;
+}
+
+export interface NativeGuideTimelineEvent {
+  atSeconds: number;
+  token: string;
+  gainDb?: number;
+}
+
+export interface NativeGuideTransitionEvent {
+  offsetPulses: number;
+  token: string;
+  gainDb?: number;
+}
+
 export interface NativeAudioStatus {
   initialized: boolean;
   deviceName?: string;
@@ -18,6 +44,11 @@ export interface NativeAudioStatus {
   countInActive?: boolean;
   countInBeat?: number;
   countInTotal?: number;
+  voicePack?: NativeVoicePackInfo | null;
+  musicBus?: NativeAudioBusStatus;
+  clickBus?: NativeAudioBusStatus;
+  guideBus?: NativeAudioBusStatus;
+  masterBus?: NativeAudioBusStatus;
   lastError?: string | null;
 }
 
@@ -88,6 +119,32 @@ export async function chooseWavTracks(): Promise<NativeAudioTrack[]> {
   });
 }
 
+export async function chooseVoicePackDirectory(): Promise<string | null> {
+  if (!isNativeApp()) {
+    throw new Error("Voice packs can be loaded from the LumaRig Studio desktop app.");
+  }
+
+  const selected = await open({
+    multiple: false,
+    directory: true
+  });
+
+  if (!selected || Array.isArray(selected)) return null;
+  return selected;
+}
+
+export async function loadVoicePack(
+  directory: string
+): Promise<NativeAudioStatus> {
+  return invoke<NativeAudioStatus>("audio_load_voice_pack", { directory });
+}
+
+export async function setGuideTimeline(
+  events: NativeGuideTimelineEvent[]
+): Promise<NativeAudioStatus> {
+  return invoke<NativeAudioStatus>("audio_set_guide_timeline", { events });
+}
+
 export async function loadWavSong(
   tracks: NativeAudioTrack[]
 ): Promise<NativeAudioStatus> {
@@ -123,14 +180,18 @@ export async function audioScheduleTransition({
   firstCountDelaySeconds,
   beatSeconds,
   countBeats,
-  keepAudio
+  clickEnabled,
+  keepAudio,
+  guideEvents = []
 }: {
   targetSeconds: number;
   delaySeconds: number;
   firstCountDelaySeconds: number;
   beatSeconds: number;
   countBeats: number;
+  clickEnabled: boolean;
   keepAudio: boolean;
+  guideEvents?: NativeGuideTransitionEvent[];
 }): Promise<NativeAudioStatus> {
   return invoke<NativeAudioStatus>("audio_schedule_transition", {
     targetSeconds,
@@ -138,7 +199,9 @@ export async function audioScheduleTransition({
     firstCountDelaySeconds,
     beatSeconds,
     countBeats,
-    keepAudio
+    clickEnabled,
+    keepAudio,
+    guideEvents
   });
 }
 
@@ -146,6 +209,20 @@ export async function audioCancelTransition(): Promise<NativeAudioStatus> {
   return invoke<NativeAudioStatus>("audio_cancel_transition");
 }
 
+
+export async function setNativeBusGain(
+  id: "music" | "click" | "guide" | "master",
+  gainDb: number
+): Promise<NativeAudioStatus> {
+  return invoke<NativeAudioStatus>("audio_set_bus_gain", { id, gainDb });
+}
+
+export async function setNativeBusMuted(
+  id: "music" | "click" | "guide" | "master",
+  muted: boolean
+): Promise<NativeAudioStatus> {
+  return invoke<NativeAudioStatus>("audio_set_bus_muted", { id, muted });
+}
 
 export async function setNativeTrackGain(id: string, gainDb: number): Promise<void> {
   await invoke("audio_set_track_gain", { id, gainDb });
