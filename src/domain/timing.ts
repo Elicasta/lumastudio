@@ -1,4 +1,4 @@
-import type { CountInSettings, Section, Song } from "./types";
+import type { CountFeel, CountInSettings, Section, Song } from "./types";
 
 export interface MusicalPosition {
   sectionIndex: number;
@@ -8,6 +8,11 @@ export interface MusicalPosition {
   bpm: number;
   meter: [number, number];
   beatSeconds: number;
+}
+
+export interface CountPulse {
+  pulsesPerBar: number;
+  pulseSeconds: number;
 }
 
 export interface ManualJumpPlan {
@@ -89,8 +94,13 @@ export function planSongCountIn(song: Song): {
   targetSeconds: number;
 } {
   const settings = song.countIn;
-  const beatSeconds = secondsPerBeat(song.bpm, song.meter);
-  const countBeats = resolveCountBeats(settings, song.meter[0]);
+  const pulse = countPulseForMeter(
+    song.bpm,
+    song.meter,
+    song.guideVoice.countFeel
+  );
+  const beatSeconds = pulse.pulseSeconds;
+  const countBeats = resolveCountBeats(settings, pulse.pulsesPerBar);
 
   return {
     countBeats,
@@ -114,8 +124,24 @@ export function planManualSectionJump(
   const mode = settings.mode;
   const targetBpm = targetSection.tempoOverride ?? song.bpm;
   const targetMeter = targetSection.meterOverride ?? song.meter;
-  const targetBeatSeconds = secondsPerBeat(targetBpm, targetMeter);
-  const targetMeterBeats = targetMeter[0];
+  const targetPulse = countPulseForMeter(
+    targetBpm,
+    targetMeter,
+    song.guideVoice.countFeel
+  );
+  const currentPulse = countPulseForMeter(
+    current.bpm,
+    current.meter,
+    song.guideVoice.countFeel
+  );
+  const targetBeatSeconds = targetPulse.pulseSeconds;
+  const targetMeterBeats = targetPulse.pulsesPerBar;
+  const currentNotatedOffset =
+    (current.beat - 1 + current.beatProgress) * current.beatSeconds;
+  const currentPulseFloat = currentNotatedOffset / currentPulse.pulseSeconds;
+  const currentPulseIndex = Math.floor(currentPulseFloat) + 1;
+  const currentPulseProgress =
+    currentPulseFloat - Math.floor(currentPulseFloat);
   const tempoChanges = Math.abs(targetBpm - current.bpm) > 0.001;
   const meterChanges =
     targetMeter[0] !== current.meter[0] ||
@@ -124,9 +150,9 @@ export function planManualSectionJump(
 
   if (mode === "none") {
     const untilNextBeat =
-      current.beatProgress < 0.02
+      currentPulseProgress < 0.02
         ? 0
-        : (1 - current.beatProgress) * current.beatSeconds;
+        : (1 - currentPulseProgress) * currentPulse.pulseSeconds;
 
     return {
       targetSectionId: targetSection.id,
@@ -145,9 +171,9 @@ export function planManualSectionJump(
   if (mode === "beats" || mode === "bars") {
     const countBeats = resolveCountBeats(settings, targetMeterBeats);
     const firstCountAfterSeconds =
-      current.beatProgress < 0.02
+      currentPulseProgress < 0.02
         ? 0
-        : (1 - current.beatProgress) * current.beatSeconds;
+        : (1 - currentPulseProgress) * currentPulse.pulseSeconds;
 
     return {
       targetSectionId: targetSection.id,
@@ -171,8 +197,8 @@ export function planManualSectionJump(
   if (
     !tempoChanges &&
     !meterChanges &&
-    current.beat === 1 &&
-    current.beatProgress < 0.08
+    currentPulseIndex === 1 &&
+    currentPulseProgress < 0.08
   ) {
     return {
       targetSectionId: targetSection.id,
@@ -189,9 +215,9 @@ export function planManualSectionJump(
   }
 
   const firstCountAfterSeconds =
-    current.beatProgress < 0.02
+    currentPulseProgress < 0.02
       ? 0
-      : (1 - current.beatProgress) * current.beatSeconds;
+      : (1 - currentPulseProgress) * currentPulse.pulseSeconds;
 
   if (tempoChanges || meterChanges) {
     const countBeats = Math.max(
@@ -216,7 +242,7 @@ export function planManualSectionJump(
 
   const currentMeterBeats = current.meter[0];
   const beatsRemainingInBar =
-    current.beatProgress < 0.02
+    currentPulseProgress < 0.02
       ? currentMeterBeats - current.beat + 1
       : currentMeterBeats - current.beat;
 
@@ -238,6 +264,31 @@ export function planManualSectionJump(
     sourceBeat: current.beat,
     destinationBar: targetSection.startBar,
     mode
+  };
+}
+
+export function countPulseForMeter(
+  bpm: number,
+  meter: [number, number],
+  feel: CountFeel
+): CountPulse {
+  const notatedPulseSeconds = secondsPerBeat(bpm, meter);
+  const compound =
+    feel === "compound" &&
+    meter[1] === 8 &&
+    meter[0] >= 6 &&
+    meter[0] % 3 === 0;
+
+  if (compound) {
+    return {
+      pulsesPerBar: meter[0] / 3,
+      pulseSeconds: notatedPulseSeconds * 3
+    };
+  }
+
+  return {
+    pulsesPerBar: meter[0],
+    pulseSeconds: notatedPulseSeconds
   };
 }
 
