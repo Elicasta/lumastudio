@@ -1,5 +1,7 @@
+mod bus;
 mod engine;
 mod error;
+mod guide;
 mod media;
 mod meter;
 mod model;
@@ -11,6 +13,7 @@ use serde_json::Value;
 use tauri::State;
 
 pub use service::AudioService;
+use guide::{GuideTimelineEventRequest, GuideTransitionEventRequest};
 use service::AudioTrackRequest;
 
 fn value<T: serde::Serialize>(input: T) -> Result<Value, String> {
@@ -35,6 +38,28 @@ pub fn audio_load_wav_song(
 ) -> Result<Value, String> {
     let status = service
         .load_wav_song(tracks)
+        .map_err(|error| error.to_string())?;
+    value(status)
+}
+
+#[tauri::command]
+pub fn audio_load_voice_pack(
+    directory: String,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    let status = service
+        .load_voice_pack(&directory)
+        .map_err(|error| error.to_string())?;
+    value(status)
+}
+
+#[tauri::command]
+pub fn audio_set_guide_timeline(
+    events: Vec<GuideTimelineEventRequest>,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    let status = service
+        .set_guide_timeline(events)
         .map_err(|error| error.to_string())?;
     value(status)
 }
@@ -124,6 +149,8 @@ pub fn audio_schedule_transition(
     beat_seconds: f64,
     count_beats: u64,
     keep_audio: bool,
+    #[serde(default)]
+    guide_events: Vec<GuideTransitionEventRequest>,
     service: State<'_, AudioService>,
 ) -> Result<Value, String> {
     let status = service
@@ -134,7 +161,32 @@ pub fn audio_schedule_transition(
             beat_seconds,
             count_beats,
             keep_audio,
+            guide_events,
         )
+        .map_err(|error| error.to_string())?;
+    value(status)
+}
+
+#[tauri::command]
+pub fn audio_set_bus_gain(
+    id: String,
+    gain_db: f32,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    let status = service
+        .set_bus_gain(&id, gain_db)
+        .map_err(|error| error.to_string())?;
+    value(status)
+}
+
+#[tauri::command]
+pub fn audio_set_bus_muted(
+    id: String,
+    muted: bool,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    let status = service
+        .set_bus_muted(&id, muted)
         .map_err(|error| error.to_string())?;
     value(status)
 }
