@@ -11,6 +11,14 @@ export type TrackKind =
   | "lighting"
   | "video";
 
+export type CountInMode = "none" | "beats" | "bars" | "adaptive";
+
+export interface CountInSettings {
+  mode: CountInMode;
+  value?: number;
+  minBeats?: number;
+}
+
 export interface Section {
   id: string;
   name: string;
@@ -23,6 +31,7 @@ export interface Section {
   midiPatch?: string;
   videoCue?: string;
   followAction?: "next" | "stop" | "loop";
+  countInOverride?: CountInSettings;
 }
 
 export interface Track {
@@ -45,6 +54,8 @@ export interface Song {
   meter: [number, number];
   durationSeconds: number;
   status: "ready" | "needs-review" | "processing";
+  countIn: CountInSettings;
+  manualJumpCountIn: CountInSettings;
   tracks: Track[];
   sections: Section[];
 }
