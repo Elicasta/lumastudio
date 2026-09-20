@@ -1278,11 +1278,13 @@ function SetlistPage({
 
 function SongsPage({
   selected,
+  setlist,
   onSelect,
   onOpenArrangement,
   onImport
 }: {
   selected: Song;
+  setlist: Setlist;
   onSelect: (song: Song) => void;
   onOpenArrangement: () => void;
   onImport: () => void;
@@ -2058,7 +2060,10 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
   const [playing, setPlaying] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
   const [pads, setPads] = useState<PadSlot[]>(() => {
-    const defaults = Array.from({ length: 16 }, (_, index) => padNames[index] ?? `Pad ${index + 1}`).map((name, index) => ({
+    const defaults: PadSlot[] = Array.from(
+      { length: 16 },
+      (_, index) => padNames[index] ?? `Pad ${index + 1}`
+    ).map((name, index): PadSlot => ({
       id: `pad-${index + 1}`,
       name,
       mode: "latch",
