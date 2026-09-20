@@ -48,7 +48,14 @@ pub fn run() {
             midi::midi_disconnect_output,
             midi::midi_send,
             midi::midi_program_change,
-            midi::midi_control_change
+            midi::midi_control_change,
+            integrations::propresenter_snapshot,
+            integrations::propresenter_next,
+            integrations::propresenter_previous,
+            integrations::propresenter_trigger_group,
+            integrations::planning_center_service_types,
+            integrations::planning_center_plans,
+            integrations::planning_center_plan
         ])
         .run(tauri::generate_context!())
         .expect("error while running LumaRig Studio");
