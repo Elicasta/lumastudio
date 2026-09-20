@@ -48,6 +48,7 @@ export function useRemoteRelay(
     status,
     session,
     error,
+    rotatePairCode: () => relayRef.current?.rotatePairCode(),
     restart: () => relayRef.current?.restart()
   };
 }
