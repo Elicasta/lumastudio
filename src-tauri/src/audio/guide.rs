@@ -274,9 +274,12 @@ impl GuideRenderer {
             self.timeline_revision = timeline.revision;
             self.timeline_index = first_event_at_or_after(timeline, playhead);
             self.expected_timeline_frame = Some(playhead);
+            self.active.clear();
         } else if let Some(expected) = self.expected_timeline_frame {
             if !transition_active && playhead != expected {
                 self.timeline_index = first_event_at_or_after(timeline, playhead);
+                self.expected_timeline_frame = Some(playhead);
+                self.active.clear();
             }
         }
 
