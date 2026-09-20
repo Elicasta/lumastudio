@@ -124,6 +124,7 @@ export function App() {
 
     if (audio.status.countInActive) {
       await audio.cancelTransition();
+      setQueuedManualSection(null);
       return;
     }
 
@@ -138,16 +139,25 @@ export function App() {
     audio.status.playing
   ]);
 
+  const stopPlayback = useCallback(async () => {
+    if (audio.hasLoadedAudio) {
+      await audio.stop();
+    }
+    setPreviewPlaying(false);
+    setQueuedManualSection(null);
+    setCurrentSection(0);
+  }, [audio.hasLoadedAudio, audio.stop]);
+
   const launchSection = useCallback(
     async (index: number) => {
       const target = selectedSong.sections[index];
       if (!target) return;
 
-      if (
-        audio.hasLoadedAudio &&
-        audio.status.playing &&
-        !audio.status.countInActive
-      ) {
+      if (audio.hasLoadedAudio && audio.status.playing) {
+        if (audio.status.countInActive) {
+          await audio.cancelTransition();
+        }
+
         const position = audio.status.positionSeconds ?? 0;
         const plan = planManualSectionJump(selectedSong, position, target);
 
@@ -171,6 +181,7 @@ export function App() {
       setCurrentSection(index);
     },
     [
+      audio.cancelTransition,
       audio.hasLoadedAudio,
       audio.scheduleTransition,
       audio.seek,
@@ -215,8 +226,7 @@ export function App() {
           return ok();
 
         case "transport.stop":
-          if (audio.hasLoadedAudio) await audio.stop();
-          setPreviewPlaying(false);
+          await stopPlayback();
           return ok();
 
         case "transport.go":
@@ -331,6 +341,7 @@ export function App() {
       launchSection,
       pausePlayback,
       startPlayback,
+      stopPlayback,
       audio.setTrackGain,
       audio.setTrackMuted,
       audio.setTrackSolo,
@@ -397,6 +408,7 @@ export function App() {
           remoteOnline={remote.status === "online"}
           onStart={startPlayback}
           onPause={pausePlayback}
+          onStop={stopPlayback}
         />
         <div className="workspace">
           {page === "setlist" && (
@@ -529,7 +541,8 @@ function Transport({
   audio,
   remoteOnline,
   onStart,
-  onPause
+  onPause,
+  onStop
 }: {
   song: Song;
   previewPlaying: boolean;
@@ -538,6 +551,7 @@ function Transport({
   remoteOnline: boolean;
   onStart: () => Promise<void>;
   onPause: () => Promise<void>;
+  onStop: () => Promise<void>;
 }) {
   const playing = audio.hasLoadedAudio
     ? Boolean(audio.status.playing)
@@ -553,11 +567,7 @@ function Transport({
   }
 
   async function stop() {
-    if (audio.hasLoadedAudio) {
-      await audio.stop();
-    } else {
-      onPreviewPlaying(false);
-    }
+    await onStop();
   }
 
   const countLabel = counting
