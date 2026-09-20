@@ -17,8 +17,11 @@ export interface VideoClip {
   enabled: boolean;
 }
 
+export type VideoProgramState = "live" | "black" | "clear" | "freeze";
+
 export interface VideoProgram {
   clips: VideoClip[];
+  state?: VideoProgramState;
   output: {
     displayEnabled: boolean;
     displayId?: string;
