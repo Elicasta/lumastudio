@@ -22,6 +22,8 @@ import {
   WandSparkles
 } from "lucide-react";
 import { demoSetlist, goodness } from "../domain/demo";
+import { createProject } from "../domain/project";
+import { openProject, saveProject } from "../services/projectStore";
 import type { BuildTool, CountInSettings, ImportStep, Page, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import {
@@ -76,6 +78,8 @@ export function App() {
   const [page, setPage] = useState<Page>("show");
   const [buildTool, setBuildTool] = useState<BuildTool>("arrangement");
   const [showTool, setShowTool] = useState<ShowTool>("setlist");
+  const [project, setProject] = useState(() => createProject("Sunday Set", setlist.songs));
+  const [projectPath, setProjectPath] = useState<string | undefined>();
   const [selectedSong, setSelectedSong] = useState<Song>(goodness);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -91,6 +95,7 @@ export function App() {
       setPreviewPlaying(false);
       setQueuedManualSection(null);
       setSelectedSong(song);
+      setProject((current) => ({ ...current, selectedSongId: song.id, updatedAt: new Date().toISOString() }));
       setCurrentSection(0);
     },
     [audio.hasLoadedAudio, audio.stop]
@@ -348,7 +353,7 @@ export function App() {
 
         case "song.select": {
           const id = String(message.payload?.id ?? "");
-          const song = demoSetlist.songs.find((item) => item.id === id);
+          const song = setlist.songs.find((item) => item.id === id);
           if (!song) return reject("Song not found in the active Setlist.");
           await selectSetlistSong(song);
           return ok();
@@ -451,6 +456,39 @@ export function App() {
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
   const lumarig = useLumaRig();
 
+  useEffect(() => {
+    setProject((current) => ({
+      ...current,
+      selectedSongId: selectedSong.id,
+      updatedAt: new Date().toISOString(),
+      setlist: {
+        ...current.setlist,
+        songs: current.setlist.songs.some((song) => song.id === selectedSong.id)
+          ? current.setlist.songs.map((song) => song.id === selectedSong.id ? selectedSong : song)
+          : [...current.setlist.songs, selectedSong]
+      }
+    }));
+  }, [selectedSong]);
+
+  async function saveCurrentProject(saveAs = false) {
+    const path = await saveProject(project, saveAs ? undefined : projectPath);
+    if (path) setProjectPath(path);
+  }
+
+  async function openStudioProject() {
+    const opened = await openProject();
+    if (!opened) return;
+    setProject(opened.project);
+    setProjectPath(opened.path);
+    const song = opened.project.setlist.songs.find((item) => item.id === opened.project.selectedSongId)
+      ?? opened.project.setlist.songs[0];
+    if (song) {
+      setSelectedSong(song);
+      setCurrentSection(0);
+      setQueuedManualSection(null);
+    }
+  }
+
   function applyNativeTracks(
     tracks: NativeAudioTrack[],
     status: NativeAudioStatus
@@ -527,6 +565,7 @@ export function App() {
               {showTool === "setlist" && (
                 <SetlistPage
                   selected={selectedSong}
+                  setlist={project.setlist}
                   audio={audio}
                   onSelect={(song) => void selectSetlistSong(song)}
                   onOpenArrangement={() => { setBuildTool("arrangement"); setPage("build"); }}
@@ -537,7 +576,14 @@ export function App() {
                 />
               )}
               {showTool === "connections" && <Connections audio={audio} remote={remote} lumarig={lumarig} song={selectedSong} onSongChange={setSelectedSong} />}
-              {showTool === "settings" && <SettingsPage audio={audio} />}
+              {showTool === "settings" && <SettingsPage audio={audio} />
+                <div className="panel project-actions">
+                  <strong>{project.name}</strong>
+                  <span>{projectPath ?? "Unsaved Studio Project"}</span>
+                  <button onClick={() => void openStudioProject()}>Open Project</button>
+                  <button onClick={() => void saveCurrentProject(false)}>Save Project</button>
+                  <button onClick={() => void saveCurrentProject(true)}>Save As…</button>
+                </div>}
             </>
           )}
 
@@ -545,7 +591,7 @@ export function App() {
             <Performance
               song={selectedSong}
               current={currentSection}
-              nextSong={adjacentSong(demoSetlist, selectedSong.id, 1)}
+              nextSong={adjacentSong(project.setlist, selectedSong.id, 1)}
               onNextSong={(song) => void selectSetlistSong(song)}
               remoteOnline={remote.status === "online"}
               remoteClients={remote.remoteClients}
@@ -729,6 +775,7 @@ function fmtClock(seconds: number) {
 
 function SetlistPage({
   selected,
+  setlist,
   audio,
   onSelect,
   onOpenArrangement,
@@ -738,6 +785,7 @@ function SetlistPage({
   onPause
 }: {
   selected: Song;
+  setlist: typeof demoSetlist;
   audio: AudioEngineController;
   onSelect: (song: Song) => void;
   onOpenArrangement: () => void;
@@ -767,7 +815,7 @@ function SetlistPage({
           <div className="dashboard-panel-head">
             <div>
               <h2>Setlist</h2>
-              <span>{demoSetlist.songs.length} Songs · 42 min</span>
+              <span>{setlist.songs.length} Songs · 42 min</span>
             </div>
             <div className="head-actions">
               <button className="primary compact" onClick={onImport}>
@@ -783,7 +831,7 @@ function SetlistPage({
             <span>Time</span><span>Tracks</span><span>Lights</span><span>Video</span><span>MIDI</span><span>Status</span>
           </div>
 
-          {demoSetlist.songs.map((song, index) => (
+          {setlist.songs.map((song, index) => (
             <button
               key={song.id}
               className={selected.id === song.id ? "dashboard-song-row selected" : "dashboard-song-row"}
@@ -1128,7 +1176,7 @@ function SongsPage({
             <strong>Library</strong>
             <input placeholder="Search songs" aria-label="Search songs" />
           </div>
-          {demoSetlist.songs.map((song) => (
+          {setlist.songs.map((song) => (
             <button
               key={song.id}
               className={song.id === selected.id ? "library-song selected" : "library-song"}
