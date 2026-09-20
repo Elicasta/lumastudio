@@ -1,0 +1,275 @@
+{
+  "id": "core-en-template",
+  "name": "Core English Template",
+  "locale": "en-US",
+  "voice": "Replace with performer label",
+  "version": 1,
+  "sampleRate": 48000,
+  "channels": 1,
+  "assets": [
+    {
+      "token": "count.1",
+      "file": "count.1.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.2",
+      "file": "count.2.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.3",
+      "file": "count.3.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.4",
+      "file": "count.4.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.5",
+      "file": "count.5.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.6",
+      "file": "count.6.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.7",
+      "file": "count.7.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.8",
+      "file": "count.8.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.9",
+      "file": "count.9.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.10",
+      "file": "count.10.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.11",
+      "file": "count.11.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.12",
+      "file": "count.12.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.13",
+      "file": "count.13.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.14",
+      "file": "count.14.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.15",
+      "file": "count.15.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "count.16",
+      "file": "count.16.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.intro",
+      "file": "section.intro.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.verse",
+      "file": "section.verse.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.prechorus",
+      "file": "section.prechorus.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.chorus",
+      "file": "section.chorus.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.refrain",
+      "file": "section.refrain.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.bridge",
+      "file": "section.bridge.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.tag",
+      "file": "section.tag.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.vamp",
+      "file": "section.vamp.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.turnaround",
+      "file": "section.turnaround.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.instrumental",
+      "file": "section.instrumental.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.interlude",
+      "file": "section.interlude.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.breakdown",
+      "file": "section.breakdown.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.build",
+      "file": "section.build.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.drop",
+      "file": "section.drop.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.solo",
+      "file": "section.solo.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.outro",
+      "file": "section.outro.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "section.ending",
+      "file": "section.ending.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.hold",
+      "file": "direction.hold.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.stop",
+      "file": "direction.stop.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.repeat",
+      "file": "direction.repeat.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.again",
+      "file": "direction.again.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.last-time",
+      "file": "direction.last-time.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.one-more",
+      "file": "direction.one-more.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.two-more",
+      "file": "direction.two-more.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.build",
+      "file": "direction.build.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.down",
+      "file": "direction.down.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.big",
+      "file": "direction.big.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    },
+    {
+      "token": "direction.soft",
+      "file": "direction.soft.wav",
+      "onsetMs": 0,
+      "gainDb": 0
+    }
+  ]
+}
