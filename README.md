@@ -81,6 +81,8 @@ Manual Section controls are overrides:
 - if the target Section changes tempo or meter, the count establishes the destination pulse
 - per-Song start count-in supports Off, bars, fixed beats, and custom beat counts
 - per-Section manual-jump count-in can inherit the Song setting or override it
+- reusable direction cues such as Last Time, One More, Hold, Build and Stop can be attached to Section starts
+- click accents preserve the actual beat-in-bar across partial and multi-bar counts
 - no-count jumps remain beat-quantized rather than cutting at a random sample
 - detected downbeat offset anchors the musical grid without trimming source media
 
