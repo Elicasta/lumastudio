@@ -25,6 +25,12 @@ import { demoSetlist, goodness } from "../domain/demo";
 import type { CountInSettings, ImportStep, Page, Song } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import {
+  buildAutomaticGuideTimeline,
+  countPulseForSection,
+  planGuideCount,
+  planSongStartGuide
+} from "../domain/guideVoice";
+import {
   musicalPositionAtSeconds,
   planManualSectionJump,
   planSongCountIn,
@@ -93,13 +99,28 @@ export function App() {
       const countIn = planSongCountIn(selectedSong);
 
       if (countIn.countBeats > 0) {
+        const guidePlan = planSongStartGuide(selectedSong);
+        const voiceEnabled =
+          selectedSong.guideVoice.outputMode === "voice-and-click" ||
+          selectedSong.guideVoice.outputMode === "voice-only";
+        const clickEnabled =
+          selectedSong.guideVoice.outputMode === "voice-and-click" ||
+          selectedSong.guideVoice.outputMode === "click-only";
+
         await audio.scheduleTransition({
           targetSeconds: countIn.targetSeconds,
           delaySeconds: countIn.launchAfterSeconds,
           firstCountDelaySeconds: 0,
           beatSeconds: countIn.beatSeconds,
           countBeats: countIn.countBeats,
-          keepAudio: false
+          clickEnabled,
+          keepAudio: false,
+          guideEvents: voiceEnabled
+            ? guidePlan.events.map((event) => ({
+                offsetPulses: event.offsetPulses,
+                token: event.token
+              }))
+            : []
         });
         return;
       }
@@ -165,6 +186,20 @@ export function App() {
 
         const position = audio.status.positionSeconds ?? 0;
         const plan = planManualSectionJump(selectedSong, position, target);
+        const pulse = countPulseForSection(selectedSong, target);
+        const guidePlan = planGuideCount({
+          destination: target,
+          totalCountPulses: plan.countBeats,
+          pulsesPerBar: pulse.pulsesPerBar,
+          announceSection: true,
+          voiceFinalBarOnly: selectedSong.guideVoice.voiceFinalBarOnly
+        });
+        const voiceEnabled =
+          selectedSong.guideVoice.outputMode === "voice-and-click" ||
+          selectedSong.guideVoice.outputMode === "voice-only";
+        const clickEnabled =
+          selectedSong.guideVoice.outputMode === "voice-and-click" ||
+          selectedSong.guideVoice.outputMode === "click-only";
 
         setQueuedManualSection(index);
         await audio.scheduleTransition({
@@ -173,7 +208,14 @@ export function App() {
           firstCountDelaySeconds: plan.firstCountAfterSeconds,
           beatSeconds: plan.beatSeconds,
           countBeats: plan.countBeats,
-          keepAudio: true
+          clickEnabled,
+          keepAudio: true,
+          guideEvents: voiceEnabled
+            ? guidePlan.events.map((event) => ({
+                offsetPulses: event.offsetPulses,
+                token: event.token
+              }))
+            : []
         });
         return;
       }
@@ -213,6 +255,27 @@ export function App() {
     audio.status.transitionActive,
     audio.status.playing,
     audio.status.positionSeconds,
+    selectedSong
+  ]);
+
+  useEffect(() => {
+    if (!audio.hasLoadedAudio) return;
+
+    const voiceEnabled =
+      selectedSong.guideVoice.outputMode === "voice-and-click" ||
+      selectedSong.guideVoice.outputMode === "voice-only";
+    const voicePackLoaded = Boolean(audio.status.voicePack?.id);
+
+    const events =
+      voiceEnabled && voicePackLoaded
+        ? buildAutomaticGuideTimeline(selectedSong)
+        : [];
+
+    void audio.updateGuideTimeline(events);
+  }, [
+    audio.hasLoadedAudio,
+    audio.status.voicePack?.id,
+    audio.updateGuideTimeline,
     selectedSong
   ]);
 
@@ -481,7 +544,14 @@ export function App() {
               }}
             />
           )}
-          {page === "connections" && <Connections audio={audio} remote={remote} />}
+          {page === "connections" && (
+            <Connections
+              audio={audio}
+              remote={remote}
+              song={selectedSong}
+              onSongChange={setSelectedSong}
+            />
+          )}
           {page === "settings" && <SettingsPage audio={audio} />}
         </div>
       </main>
