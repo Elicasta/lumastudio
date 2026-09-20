@@ -1,6 +1,21 @@
 # Release keys and GitHub secrets
 
-Normal development builds need no secrets.
+Normal development builds need no private secrets.
+
+## Supabase remote connection
+
+LumaRig Studio uses a Supabase **publishable key** for remote pairing and Realtime. A publishable key is intentionally safe to ship in the app. Do not put a Supabase secret/service-role key in the Tauri or React client.
+
+Current client configuration can be overridden with:
+
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+
+The `lumarig-remote-session` Edge Function performs privileged session creation, pairing-code validation, heartbeat and session closing. Its secret key stays inside Supabase's server environment.
+
+No Supabase secret needs to be added to GitHub or Vercel for normal app builds.
+
+## Release signing
 
 The release / auto-update pipeline uses two trust systems:
 
