@@ -97,6 +97,8 @@ pub struct AudioEngineStatus {
     pub count_in_active: bool,
     pub count_in_beat: u64,
     pub count_in_total: u64,
+    pub count_in_bar: u64,
+    pub count_in_bars: u64,
     pub voice_pack: Option<VoicePackInfo>,
     pub music_bus: AudioBusStatus,
     pub click_bus: AudioBusStatus,
@@ -241,6 +243,7 @@ impl AudioEngine {
         first_count_delay_seconds: f64,
         beat_seconds: f64,
         count_beats: u64,
+        pulses_per_bar: u64,
         click_enabled: bool,
         keep_audio: bool,
         guide_events: &[GuideTransitionEventRequest],
@@ -287,6 +290,7 @@ impl AudioEngine {
             first_count_delay_frames,
             beat_frames,
             count_beats,
+            pulses_per_bar,
             click_enabled,
             keep_audio,
         );
@@ -412,11 +416,11 @@ impl AudioEngine {
         let (peak_left, peak_right) = self.realtime.meter.peaks();
         let frame = self.realtime.transport.frame();
 
-        let (count_in_beat, count_in_total) = self
+        let (count_in_beat, count_in_total, count_in_bar, count_in_bars) = self
             .realtime
             .transition
-            .current_count_beat()
-            .unwrap_or((0, 0));
+            .current_count_position()
+            .unwrap_or((0, 0, 0, 0));
 
         let voice_pack = self.realtime.voice_pack.load();
 
@@ -436,6 +440,8 @@ impl AudioEngine {
             count_in_active: self.realtime.transition.active() && count_in_total > 0,
             count_in_beat,
             count_in_total,
+            count_in_bar,
+            count_in_bars,
             voice_pack: VoicePackInfo::from_pack(&**voice_pack),
             music_bus: AudioBusStatus {
                 gain_db: self.realtime.music_bus.gain_db(),
@@ -730,7 +736,15 @@ fn count_click_sample(
         return 0.0;
     }
 
-    let accent = beat_index == 0;
+    let pulses = transition.pulses_per_bar.max(1);
+    let remainder = transition.count_beats % pulses;
+    let first_beat = if remainder == 0 {
+        1
+    } else {
+        pulses - remainder + 1
+    };
+    let beat_number = ((first_beat - 1 + beat_index) % pulses) + 1;
+    let accent = beat_number == 1;
     let frequency = if accent { 1_650.0_f32 } else { 1_050.0_f32 };
     let gain = if accent { 0.34_f32 } else { 0.24_f32 };
     let phase = std::f32::consts::TAU
@@ -787,7 +801,7 @@ mod tests {
         ]);
         state.transport.pause();
         state.transport.seek_frame(0);
-        state.transition.schedule(2, 2, 0, 1, 2, true, false);
+        state.transition.schedule(2, 2, 0, 1, 2, 4, true, false);
 
         let mut output = vec![0.0_f32; 6];
         render(&mut output, 2, 48_000, &state, &mut GuideRenderer::default());
