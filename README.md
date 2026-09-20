@@ -20,6 +20,8 @@ Every Setlist row is a Song. Every Song owns an Arrangement. Sections/Locators d
 - Lighting workspace
 - MIDI / video / source workspace shells
 - Connections screen
+- Studio-owned Supabase remote pairing + Realtime relay
+- dedicated next-Song performance control
 - updater settings
 - GitHub CI
 - universal macOS DMG release workflow
@@ -60,6 +62,8 @@ npm run dmg
 - Section events share one musical clock.
 - Realtime audio work stays isolated from AI, disk, network and UI work.
 - Stem separation runs as a worker job and maps aligned stems into track columns.
+- The Mac app owns remote sessions and canonical show state. Companion remotes only join sessions created by Studio.
+- Supabase handles remote session discovery and low-latency relay; it never becomes the playback clock or audio source of truth.
 - YouTube remains a reference/playback source. Licensed/local media is used for processing, warping and stem work.
 
 Read [SECRETS.md](./SECRETS.md) before the first release.
