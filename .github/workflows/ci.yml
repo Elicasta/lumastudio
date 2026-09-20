@@ -15,10 +15,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: npm
-          cache: npm
 
-      - run: npm ci
+      - run: npm install
       - name: Frontend environment
         run: node --version && npm --version
       - run: npm run check:versions
@@ -54,7 +52,7 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
-      - run: npm ci
+      - run: npm install
       - name: Native environment
         run: node --version && npm --version && rustc --version && cargo --version
       - run: npm run check:versions
