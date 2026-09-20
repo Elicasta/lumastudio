@@ -21,7 +21,7 @@ use super::{
         VoicePackInfo,
     },
     meter::StereoMeter,
-    model::SongMix,
+    model::{SongMix, TrackBus},
     transition::ScheduledTransition,
     transport::Transport,
 };
@@ -532,6 +532,10 @@ where
 
         let mut music_left = 0.0_f32;
         let mut music_right = 0.0_f32;
+        let mut track_click_left = 0.0_f32;
+        let mut track_click_right = 0.0_f32;
+        let mut track_guide_left = 0.0_f32;
+        let mut track_guide_right = 0.0_f32;
         let should_render_song =
             playing && (!transition_active || transition.keep_audio);
 
@@ -547,8 +551,20 @@ where
                     let (track_left, track_right) = track.sample_at(timeline_frame);
                     let gain = track.control.gain_linear();
 
-                    music_left += track_left * gain;
-                    music_right += track_right * gain;
+                    match track.bus {
+                        TrackBus::Music => {
+                            music_left += track_left * gain;
+                            music_right += track_right * gain;
+                        }
+                        TrackBus::Click => {
+                            track_click_left += track_left * gain;
+                            track_click_right += track_right * gain;
+                        }
+                        TrackBus::Guide => {
+                            track_guide_left += track_left * gain;
+                            track_guide_right += track_right * gain;
+                        }
+                    }
                 }
 
                 playhead = timeline_frame.saturating_add(1);
@@ -561,21 +577,26 @@ where
             }
         }
 
-        let (guide_left, guide_right) = guide_renderer.mix_active();
+        let (voice_guide_left, voice_guide_right) = guide_renderer.mix_active();
 
         let music_gain = realtime.music_bus.gain_linear();
         let click_gain = realtime.click_bus.gain_linear();
         let guide_gain = realtime.guide_bus.gain_linear();
         let master_gain = realtime.master_bus.gain_linear();
 
+        let click_left = track_click_left + click;
+        let click_right = track_click_right + click;
+        let guide_left = track_guide_left + voice_guide_left;
+        let guide_right = track_guide_right + voice_guide_right;
+
         let left = (
             music_left * music_gain
-                + click * click_gain
+                + click_left * click_gain
                 + guide_left * guide_gain
         ) * master_gain;
         let right = (
             music_right * music_gain
-                + click * click_gain
+                + click_right * click_gain
                 + guide_right * guide_gain
         ) * master_gain;
 
