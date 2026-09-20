@@ -241,7 +241,6 @@ export function buildAutomaticGuideTimeline(song: Song): Array<{
   gainDb?: number;
 }> {
   if (
-    song.guideVoice.sectionCues !== "automatic" ||
     song.guideVoice.outputMode === "off" ||
     song.guideVoice.outputMode === "click-only"
   ) {
@@ -254,20 +253,22 @@ export function buildAutomaticGuideTimeline(song: Song): Array<{
     gainDb?: number;
   }> = [];
 
-  for (let index = 1; index < song.sections.length; index += 1) {
-    const destination = song.sections[index];
-    const pulse = countPulseForSection(song, destination);
-    const plan = planAutomaticSectionCue(song, index, pulse.pulsesPerBar);
-    const destinationSeconds = sectionStartSeconds(song, index);
+  if (song.guideVoice.sectionCues === "automatic") {
+    for (let index = 1; index < song.sections.length; index += 1) {
+      const destination = song.sections[index];
+      const pulse = countPulseForSection(song, destination);
+      const plan = planAutomaticSectionCue(song, index, pulse.pulsesPerBar);
+      const destinationSeconds = sectionStartSeconds(song, index);
 
-    for (const event of plan.events) {
-      const atSeconds =
-        destinationSeconds + event.offsetPulses * pulse.pulseSeconds;
-      if (atSeconds < 0) continue;
-      events.push({
-        atSeconds,
-        token: event.token
-      });
+      for (const event of plan.events) {
+        const atSeconds =
+          destinationSeconds + event.offsetPulses * pulse.pulseSeconds;
+        if (atSeconds < 0) continue;
+        events.push({
+          atSeconds,
+          token: event.token
+        });
+      }
     }
   }
 
