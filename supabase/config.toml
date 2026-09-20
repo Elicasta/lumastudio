@@ -1,0 +1,4 @@
+project_id = "lmldxkukfksfswzbliuy"
+
+[functions.lumarig-remote-session]
+verify_jwt = false

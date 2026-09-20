@@ -87,16 +87,24 @@ Stem splitting must never run on the realtime audio thread.
 
 ## Phase 5 — remote
 
-- local network discovery
-- authenticated pairing
+Remote architecture is Studio-owned:
+
+- Mac app creates the Supabase remote session
+- Mac app generates and rotates the 6-digit pairing code
+- Mac app broadcasts canonical Setlist / Song / Section / transport state
+- companion devices only join a Studio-created session
+- Supabase Realtime is transport, never the musical clock
+- pairing sessions expire automatically
 - iPad control surface
 - iPhone compact remote
 - current / next Song and Section
-- GO / Previous / Next
+- GO / Previous Section / Next Section
+- dedicated Previous Song / Next Song commands
 - pads
 - mixer subset
 - blackout / stop-all safety actions
 - connection-loss behavior
+- optional LAN-direct transport can be added later without changing the command protocol
 
 ## Phase 6 — release hardening
 

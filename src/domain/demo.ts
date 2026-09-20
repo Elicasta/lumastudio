@@ -24,7 +24,19 @@ export const goodness: Song = {
   key: "Ab",
   meter: [4, 4],
   durationSeconds: 318,
+  downbeatSeconds: 0,
   status: "ready",
+  countIn: { mode: "bars", value: 1 },
+  manualJumpCountIn: { mode: "adaptive", minBeats: 2 },
+  guideVoice: {
+    voicePackId: "core-en-neutral-f",
+    outputMode: "voice-and-click",
+    sectionCues: "automatic",
+    announceFirstSection: true,
+    voiceFinalBarOnly: true,
+    countFeel: "notated"
+  },
+  guideMarkers: [],
   tracks: [
     track("click", "Click", "click", "#cbd5e1"),
     track("guide", "Guide", "guide", "#60a5fa"),

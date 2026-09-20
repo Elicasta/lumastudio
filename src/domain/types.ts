@@ -11,6 +11,30 @@ export type TrackKind =
   | "lighting"
   | "video";
 
+export type CountInMode = "none" | "beats" | "bars" | "adaptive";
+export type CountFeel = "notated" | "compound";
+export type GuideOutputMode =
+  | "off"
+  | "click-only"
+  | "voice-and-click"
+  | "voice-only";
+export type SectionCueMode = "off" | "automatic";
+
+export interface GuideVoiceSettings {
+  voicePackId: string;
+  outputMode: GuideOutputMode;
+  sectionCues: SectionCueMode;
+  announceFirstSection: boolean;
+  voiceFinalBarOnly: boolean;
+  countFeel: CountFeel;
+}
+
+export interface CountInSettings {
+  mode: CountInMode;
+  value?: number;
+  minBeats?: number;
+}
+
 export interface Section {
   id: string;
   name: string;
@@ -23,6 +47,16 @@ export interface Section {
   midiPatch?: string;
   videoCue?: string;
   followAction?: "next" | "stop" | "loop";
+  countInOverride?: CountInSettings;
+}
+
+export interface GuideMarker {
+  id: string;
+  bar: number;
+  beat: number;
+  token: string;
+  label?: string;
+  gainDb?: number;
 }
 
 export interface Track {
@@ -44,7 +78,12 @@ export interface Song {
   key: string;
   meter: [number, number];
   durationSeconds: number;
+  downbeatSeconds?: number;
   status: "ready" | "needs-review" | "processing";
+  countIn: CountInSettings;
+  manualJumpCountIn: CountInSettings;
+  guideVoice: GuideVoiceSettings;
+  guideMarkers: GuideMarker[];
   tracks: Track[];
   sections: Section[];
 }
@@ -57,6 +96,7 @@ export interface Setlist {
 
 export type Page =
   | "setlist"
+  | "songs"
   | "arrangement"
   | "performance"
   | "pads"
