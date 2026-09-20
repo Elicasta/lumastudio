@@ -12,6 +12,22 @@ export type TrackKind =
   | "video";
 
 export type CountInMode = "none" | "beats" | "bars" | "adaptive";
+export type CountFeel = "notated" | "compound";
+export type GuideOutputMode =
+  | "off"
+  | "click-only"
+  | "voice-and-click"
+  | "voice-only";
+export type SectionCueMode = "off" | "automatic";
+
+export interface GuideVoiceSettings {
+  voicePackId: string;
+  outputMode: GuideOutputMode;
+  sectionCues: SectionCueMode;
+  announceFirstSection: boolean;
+  voiceFinalBarOnly: boolean;
+  countFeel: CountFeel;
+}
 
 export interface CountInSettings {
   mode: CountInMode;
@@ -57,6 +73,7 @@ export interface Song {
   status: "ready" | "needs-review" | "processing";
   countIn: CountInSettings;
   manualJumpCountIn: CountInSettings;
+  guideVoice: GuideVoiceSettings;
   tracks: Track[];
   sections: Section[];
 }
