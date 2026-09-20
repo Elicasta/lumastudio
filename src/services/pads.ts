@@ -1,4 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { isNativeApp } from "./audio";
 
 export type PadMode = "one-shot" | "loop" | "hold" | "latch";
@@ -35,7 +36,7 @@ export async function choosePadAudio(): Promise<{ path: string; name: string } |
 }
 
 function fileUrl(path: string) {
-  return "asset://localhost/" + encodeURI(path.replace(/\\/g, "/"));
+  return convertFileSrc(path);
 }
 
 export function triggerPad(slot: PadSlot) {
