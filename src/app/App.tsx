@@ -2066,7 +2066,7 @@ function Mixer({
             <strong>Music · Click · Guide · Master</strong>
           </div>
           <span>
-            Click and Guide are independent logical buses. Hardware output assignment comes next.
+            Click and Guide are independent buses and can be assigned to separate hardware outputs.
           </span>
         </div>
 
