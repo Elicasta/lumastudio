@@ -430,12 +430,19 @@ where
 {
     let channels = config.channels as usize;
     let sample_rate = config.sample_rate.0;
+    let mut guide_renderer = GuideRenderer::default();
 
     device
         .build_output_stream(
             config.clone(),
             move |output: &mut [T], _| {
-                render(output, channels, sample_rate, &realtime)
+                render(
+                    output,
+                    channels,
+                    sample_rate,
+                    &realtime,
+                    &mut guide_renderer,
+                )
             },
             move |_error| {
                 error_state.device_error.store(true, Ordering::Release);
@@ -450,6 +457,7 @@ fn render<T>(
     output_channels: usize,
     sample_rate: u32,
     realtime: &RealtimeState,
+    guide_renderer: &mut GuideRenderer,
 )
 where
     T: SizedSample + Sample + FromSample<f32>,
@@ -460,6 +468,7 @@ where
 
     if output_channels == 0 {
         realtime.meter.store_peaks(0.0, 0.0);
+        guide_renderer.clear();
         return;
     }
 
@@ -468,9 +477,12 @@ where
         realtime.transition.cancel();
         realtime.transport.pause();
         realtime.meter.store_peaks(0.0, 0.0);
+        guide_renderer.clear();
         return;
     }
 
+    let timeline = realtime.guide_timeline.load();
+    let transition_guide = realtime.transition_guide.load();
     let has_solo = mix.tracks.iter().any(|track| track.control.solo());
     let transition = realtime.transition.snapshot();
     let mut transition_active = transition.active;
@@ -480,8 +492,16 @@ where
     let mut peak_left = 0.0_f32;
     let mut peak_right = 0.0_f32;
 
+    guide_renderer.begin_buffer(
+        &timeline,
+        &transition_guide,
+        playhead,
+        transition_active,
+    );
+
     if !playing && !transition_active {
         realtime.meter.store_peaks(0.0, 0.0);
+        guide_renderer.clear();
         return;
     }
 
@@ -493,11 +513,23 @@ where
             playing = true;
             transition_active = false;
             realtime.transition.complete();
+            guide_renderer.seek_timeline(&timeline, playhead);
         }
 
-        let mut left = 0.0_f32;
-        let mut right = 0.0_f32;
+        let mut click = 0.0_f32;
 
+        if transition_active {
+            let elapsed = transition
+                .total_frames
+                .saturating_sub(transition_remaining);
+            guide_renderer.trigger_transition(elapsed, &transition_guide);
+            click = count_click_sample(elapsed, transition, sample_rate);
+        } else if playing {
+            guide_renderer.trigger_timeline(playhead, &timeline);
+        }
+
+        let mut music_left = 0.0_f32;
+        let mut music_right = 0.0_f32;
         let should_render_song =
             playing && (!transition_active || transition.keep_audio);
 
@@ -513,8 +545,8 @@ where
                     let (track_left, track_right) = track.sample_at(timeline_frame);
                     let gain = track.control.gain_linear();
 
-                    left += track_left * gain;
-                    right += track_right * gain;
+                    music_left += track_left * gain;
+                    music_right += track_right * gain;
                 }
 
                 playhead = timeline_frame.saturating_add(1);
@@ -527,19 +559,26 @@ where
             }
         }
 
-        if transition_active {
-            let elapsed = transition
-                .total_frames
-                .saturating_sub(transition_remaining);
-            let click = count_click_sample(elapsed, transition, sample_rate);
-            left += click;
-            right += click;
+        let (guide_left, guide_right) = guide_renderer.mix_active();
 
-            transition_remaining = transition_remaining.saturating_sub(1);
-        }
+        let music_gain = realtime.music_bus.gain_linear();
+        let click_gain = realtime.click_bus.gain_linear();
+        let guide_gain = realtime.guide_bus.gain_linear();
+        let master_gain = realtime.master_bus.gain_linear();
 
-        left = left.clamp(-1.0, 1.0);
-        right = right.clamp(-1.0, 1.0);
+        let left = (
+            music_left * music_gain
+                + click * click_gain
+                + guide_left * guide_gain
+        ) * master_gain;
+        let right = (
+            music_right * music_gain
+                + click * click_gain
+                + guide_right * guide_gain
+        ) * master_gain;
+
+        let left = left.clamp(-1.0, 1.0);
+        let right = right.clamp(-1.0, 1.0);
 
         peak_left = peak_left.max(left.abs());
         peak_right = peak_right.max(right.abs());
@@ -549,6 +588,10 @@ where
         } else {
             frame_out[0] = T::from_sample_(left);
             frame_out[1] = T::from_sample_(right);
+        }
+
+        if transition_active {
+            transition_remaining = transition_remaining.saturating_sub(1);
         }
     }
 
@@ -628,7 +671,7 @@ mod tests {
         let state = test_state(vec![0.25, -0.25, 0.5, -0.5]);
         let mut output = vec![0.0_f32; 4];
 
-        render(&mut output, 2, 48_000, &state);
+        render(&mut output, 2, 48_000, &state, &mut GuideRenderer::default());
 
         assert_eq!(output, vec![0.25, -0.25, 0.5, -0.5]);
         assert_eq!(state.transport.frame(), 2);
@@ -647,7 +690,7 @@ mod tests {
         state.transition.schedule(2, 2, 0, 1, 2, false);
 
         let mut output = vec![0.0_f32; 6];
-        render(&mut output, 2, 48_000, &state);
+        render(&mut output, 2, 48_000, &state, &mut GuideRenderer::default());
 
         assert!(!state.transition.active());
         assert!(state.transport.is_playing());
@@ -682,7 +725,7 @@ mod tests {
         state.transport.play();
 
         let mut output = vec![0.0_f32; 2];
-        render(&mut output, 2, 48_000, &state);
+        render(&mut output, 2, 48_000, &state, &mut GuideRenderer::default());
 
         assert_eq!(output, vec![0.2, 0.2]);
     }
