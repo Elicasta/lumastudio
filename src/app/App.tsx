@@ -1152,6 +1152,21 @@ function Arrangement({
           >
             4 Beats
           </button>
+          <label className="count-custom">
+            <span>Custom</span>
+            <input
+              type="number"
+              min="1"
+              max="32"
+              value={song.countIn.mode === "beats" ? song.countIn.value ?? 4 : 4}
+              onChange={(event) =>
+                setSongCountIn({
+                  mode: "beats",
+                  value: clampCountBeats(Number(event.currentTarget.value))
+                })
+              }
+            />
+          </label>
         </div>
         <div className="manual-jump-setting">
           <small>MANUAL SECTION JUMP</small>
@@ -1269,6 +1284,25 @@ function Arrangement({
               >
                 4 Beats
               </button>
+              <label className="count-custom">
+                <span>Custom</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="32"
+                  value={
+                    selectedSection.countInOverride?.mode === "beats"
+                      ? selectedSection.countInOverride.value ?? 4
+                      : 4
+                  }
+                  onChange={(event) =>
+                    setSectionCountIn({
+                      mode: "beats",
+                      value: clampCountBeats(Number(event.currentTarget.value))
+                    })
+                  }
+                />
+              </label>
             </div>
           </div>
         </div>
@@ -1499,6 +1533,11 @@ function Performance({
       </div>
     </section>
   );
+}
+
+function clampCountBeats(value: number) {
+  if (!Number.isFinite(value)) return 4;
+  return Math.max(1, Math.min(32, Math.round(value)));
 }
 
 function countInLabel(song: Song) {
