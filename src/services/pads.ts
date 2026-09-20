@@ -42,13 +42,13 @@ function fileUrl(path: string) {
 
 export async function loadNativePad(index: number, slot: PadSlot) {
   if (!slot.path) throw new Error("Load audio into this pad first.");
-  if (!/\.(wav|wave)$/i.test(slot.path)) throw new Error("Native pad engine currently supports WAV. MP3/AIFF decoding is next.");
   await invoke("audio_load_pad", { index, path: slot.path, looped: slot.mode !== "one-shot", gainDb: slot.gainDb, width: slot.width / 100, octave: slot.octave });
 }
 
 export async function triggerNativePad(index: number) { await invoke("audio_trigger_pad", { index }); }
+export async function releaseNativePad(index: number) { await invoke("audio_release_pad", { index }); }
 export async function stopNativePad(index: number) { await invoke("audio_stop_pad", { index }); }
-export async function configureNativePad(index: number, slot: PadSlot) { await invoke("audio_configure_pad", { index, gainDb: slot.gainDb, width: slot.width / 100 }); }
+export async function configureNativePad(index: number, slot: PadSlot) { await invoke("audio_configure_pad", { index, gainDb: slot.gainDb, width: slot.width / 100, attackMs: slot.attackMs, releaseMs: slot.releaseMs }); }
 
 export function triggerPad(slot: PadSlot) {
   if (!slot.path) throw new Error("Load audio into this pad first.");
