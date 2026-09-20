@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { goodness } from "./demo";
 import {
+  barBeatToSeconds,
   musicalPositionAtSeconds,
   planManualSectionJump,
   planSongCountIn,
@@ -22,6 +23,14 @@ describe("musical timing", () => {
 
     expect(sectionStartSeconds(offsetSong, 0)).toBeCloseTo(0.842, 5);
     expect(planSongCountIn(offsetSong).targetSeconds).toBeCloseTo(0.842, 5);
+  });
+
+  it("maps a bar and beat back onto the Song timeline", () => {
+    const barNine = barBeatToSeconds(goodness, 9, 1);
+    expect(barNine).toBeCloseTo(sectionStartSeconds(goodness, 1), 5);
+
+    const beatThree = barBeatToSeconds(goodness, 9, 3);
+    expect(beatThree - barNine).toBeCloseTo(2 * (60 / 63), 5);
   });
 
   it("derives the current bar and beat automatically", () => {
