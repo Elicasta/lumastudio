@@ -1,6 +1,7 @@
 mod audio;
 mod project;
 mod video;
+mod midi;
 
 use audio::AudioService;
 
@@ -8,6 +9,7 @@ use audio::AudioService;
 pub fn run() {
     tauri::Builder::default()
         .manage(AudioService::default())
+        .manage(midi::MidiService::default())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -40,7 +42,13 @@ pub fn run() {
             project::project_write,
             video::video_open_output,
             video::video_close_output,
-            video::video_fullscreen_output
+            video::video_fullscreen_output,
+            midi::midi_list_outputs,
+            midi::midi_connect_output,
+            midi::midi_disconnect_output,
+            midi::midi_send,
+            midi::midi_program_change,
+            midi::midi_control_change
         ])
         .run(tauri::generate_context!())
         .expect("error while running LumaRig Studio");
