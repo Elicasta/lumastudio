@@ -74,7 +74,7 @@ export function useProPresenter(
     if (lastTriggeredRef.current === key) return;
     lastTriggeredRef.current = key;
 
-    void proPresenterTriggerGroup(settings.host, settings.port, target.name)
+    void proPresenterTriggerGroup(settings.host, settings.port, target.id)
       .then(() => refresh())
       .catch(() => {
         lastTriggeredRef.current = "";
@@ -103,8 +103,8 @@ export function useProPresenter(
     await refresh();
   }, [refresh, settings.host, settings.port]);
 
-  const triggerGroup = useCallback(async (group: string) => {
-    await proPresenterTriggerGroup(settings.host, settings.port, group);
+  const triggerGroup = useCallback(async (groupId: string) => {
+    await proPresenterTriggerGroup(settings.host, settings.port, groupId);
     await refresh();
   }, [refresh, settings.host, settings.port]);
 
