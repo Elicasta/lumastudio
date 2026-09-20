@@ -1,6 +1,6 @@
 [package]
 name = "lumarig-studio"
-version = "0.2.0"
+version = "0.3.0"
 description = "LumaRig Studio"
 authors = ["LumaRig Studio"]
 edition = "2021"
