@@ -117,7 +117,7 @@ describe("Planning Center service import", () => {
             ...raw.items!.data![0],
             id: "item-3",
             attributes: {
-              ...raw.items!.data![0].attributes,
+              ...(raw.items!.data![0].attributes ?? {}),
               sequence: 3
             }
           }
