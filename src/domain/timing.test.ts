@@ -33,6 +33,18 @@ describe("musical timing", () => {
     expect(plan.launchAfterSeconds).toBeCloseTo((4 * 60) / 63, 5);
   });
 
+  it("makes one bar mean the actual meter instead of always four clicks", () => {
+    const sixEight = {
+      ...goodness,
+      bpm: 72,
+      meter: [6, 8] as [number, number]
+    };
+    const plan = planSongCountIn(sixEight);
+
+    expect(plan.countBeats).toBe(6);
+    expect(plan.beatSeconds).toBeCloseTo((60 / 72) * 0.5, 5);
+  });
+
   it("calculates an adaptive manual jump from the middle of a bar", () => {
     const oneBeat = 60 / 63;
     // Beat 2, halfway through: next clean count is beat 3, then 4, then land on 1.
