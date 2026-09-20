@@ -727,7 +727,7 @@ function Sidebar({
     <aside className="sidebar">
       <div className="brand">
         <div className="brand-mark">L</div>
-        <div><strong>LUMARIG</strong><span>STUDIO · BETA 0.3</span></div>
+        <div><strong>LUMARIG</strong><span>STUDIO · BETA 0.4</span></div>
       </div>
       <nav className="workspace-nav">
         {workspaceNav.map(({ page: target, label, icon: Icon }) => (
