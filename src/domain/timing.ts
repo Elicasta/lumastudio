@@ -112,7 +112,14 @@ export function planManualSectionJump(
   );
   const settings = targetSection.countInOverride ?? song.manualJumpCountIn;
   const mode = settings.mode;
-  const meterBeats = current.meter[0];
+  const targetBpm = targetSection.tempoOverride ?? song.bpm;
+  const targetMeter = targetSection.meterOverride ?? song.meter;
+  const targetBeatSeconds = secondsPerBeat(targetBpm, targetMeter);
+  const targetMeterBeats = targetMeter[0];
+  const tempoChanges = Math.abs(targetBpm - current.bpm) > 0.001;
+  const meterChanges =
+    targetMeter[0] !== current.meter[0] ||
+    targetMeter[1] !== current.meter[1];
   const targetSeconds = sectionStartSeconds(song, targetIndex);
 
   if (mode === "none") {
@@ -126,7 +133,7 @@ export function planManualSectionJump(
       targetSeconds,
       launchAfterSeconds: untilNextBeat,
       countBeats: 0,
-      beatSeconds: current.beatSeconds,
+      beatSeconds: targetBeatSeconds,
       firstCountAfterSeconds: 0,
       sourceBar: current.bar,
       sourceBeat: current.beat,
@@ -136,7 +143,7 @@ export function planManualSectionJump(
   }
 
   if (mode === "beats" || mode === "bars") {
-    const countBeats = resolveCountBeats(settings, meterBeats);
+    const countBeats = resolveCountBeats(settings, targetMeterBeats);
     const firstCountAfterSeconds =
       current.beatProgress < 0.02
         ? 0
@@ -146,9 +153,9 @@ export function planManualSectionJump(
       targetSectionId: targetSection.id,
       targetSeconds,
       launchAfterSeconds:
-        firstCountAfterSeconds + countBeats * current.beatSeconds,
+        firstCountAfterSeconds + countBeats * targetBeatSeconds,
       countBeats,
-      beatSeconds: current.beatSeconds,
+      beatSeconds: targetBeatSeconds,
       firstCountAfterSeconds,
       sourceBar: current.bar,
       sourceBeat: current.beat,
@@ -161,7 +168,12 @@ export function planManualSectionJump(
   // take the clean downbeat immediately. Otherwise start counting on the next
   // clean beat and land on a later barline. If there are too few beats left to
   // establish time, wait one additional bar before the destination jump.
-  if (current.beat === 1 && current.beatProgress < 0.08) {
+  if (
+    !tempoChanges &&
+    !meterChanges &&
+    current.beat === 1 &&
+    current.beatProgress < 0.08
+  ) {
     return {
       targetSectionId: targetSection.id,
       targetSeconds,
@@ -181,6 +193,27 @@ export function planManualSectionJump(
       ? 0
       : (1 - current.beatProgress) * current.beatSeconds;
 
+  if (tempoChanges || meterChanges) {
+    const countBeats = Math.max(
+      targetMeterBeats,
+      settings.minBeats ?? 2
+    );
+
+    return {
+      targetSectionId: targetSection.id,
+      targetSeconds,
+      launchAfterSeconds:
+        firstCountAfterSeconds + countBeats * targetBeatSeconds,
+      countBeats,
+      beatSeconds: targetBeatSeconds,
+      firstCountAfterSeconds,
+      sourceBar: current.bar,
+      sourceBeat: current.beat,
+      destinationBar: targetSection.startBar,
+      mode
+    };
+  }
+
   const beatsRemainingInBar =
     current.beatProgress < 0.02
       ? meterBeats - current.beat + 1
@@ -196,9 +229,9 @@ export function planManualSectionJump(
     targetSectionId: targetSection.id,
     targetSeconds,
     launchAfterSeconds:
-      firstCountAfterSeconds + countBeats * current.beatSeconds,
+      firstCountAfterSeconds + countBeats * targetBeatSeconds,
     countBeats,
-    beatSeconds: current.beatSeconds,
+    beatSeconds: targetBeatSeconds,
     firstCountAfterSeconds,
     sourceBar: current.bar,
     sourceBeat: current.beat,
