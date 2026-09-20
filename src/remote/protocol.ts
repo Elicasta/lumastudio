@@ -1,4 +1,4 @@
-export const REMOTE_PROTOCOL_VERSION = 1 as const;
+export const REMOTE_PROTOCOL_VERSION = 2 as const;
 
 export const REMOTE_COMMANDS = [
   "transport.play",
