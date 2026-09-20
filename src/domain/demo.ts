@@ -36,6 +36,7 @@ export const goodness: Song = {
     voiceFinalBarOnly: true,
     countFeel: "notated"
   },
+  guideMarkers: [],
   tracks: [
     track("click", "Click", "click", "#cbd5e1"),
     track("guide", "Guide", "guide", "#60a5fa"),
