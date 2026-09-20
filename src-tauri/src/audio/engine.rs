@@ -126,6 +126,12 @@ impl AudioEngine {
         let config = supported.config();
 
         let realtime = Arc::new(RealtimeState::new());
+        if output_channels == 1 {
+            realtime.music_bus.set_output_pair(0, 0);
+            realtime.click_bus.set_output_pair(0, 0);
+            realtime.guide_bus.set_output_pair(0, 0);
+            realtime.master_bus.set_output_pair(0, 0);
+        }
         let error_state = realtime.clone();
 
         let stream = match sample_format {
