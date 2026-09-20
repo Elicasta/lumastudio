@@ -14,6 +14,7 @@ pub fn run() {
             audio::audio_initialize,
             audio::audio_load_pad,
             audio::audio_trigger_pad,
+            audio::audio_release_pad,
             audio::audio_stop_pad,
             audio::audio_configure_pad,
             audio::audio_status,
