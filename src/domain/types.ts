@@ -70,6 +70,14 @@ export interface Track {
   gainDb: number;
 }
 
+export interface SongExternalLinks {
+  planningCenterSongId?: string;
+  planningCenterArrangementId?: string;
+  planningCenterPlanItemId?: string;
+  planningCenterKeyId?: string;
+  planningCenterSequence?: string[];
+}
+
 export interface Song {
   id: string;
   title: string;
@@ -86,6 +94,7 @@ export interface Song {
   guideMarkers: GuideMarker[];
   tracks: Track[];
   sections: Section[];
+  external?: SongExternalLinks;
 }
 
 export interface Setlist {
@@ -104,7 +113,7 @@ export type BuildTool =
   | "midi"
   | "video";
 
-export type ShowTool = "setlist" | "connections" | "settings";
+export type ShowTool = "setlist" | "connections" | "integrations" | "settings";
 
 export type Page =
   | Workspace
