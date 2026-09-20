@@ -37,7 +37,7 @@ pub fn load_wav_track(
     })
 }
 
-fn read_wav_stereo(path: &Path) -> Result<(Vec<f32>, u32), AudioError> {
+pub(crate) fn read_wav_stereo(path: &Path) -> Result<(Vec<f32>, u32), AudioError> {
     let mut reader =
         hound::WavReader::open(path).map_err(|error| AudioError::OpenFile(error.to_string()))?;
     let spec = reader.spec();
@@ -86,7 +86,7 @@ fn read_wav_stereo(path: &Path) -> Result<(Vec<f32>, u32), AudioError> {
     Ok((stereo, spec.sample_rate))
 }
 
-fn resample_stereo(
+pub(crate) fn resample_stereo(
     samples: Vec<f32>,
     source_sample_rate: u32,
     target_sample_rate: u32,
