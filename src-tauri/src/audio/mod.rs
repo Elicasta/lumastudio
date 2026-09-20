@@ -193,6 +193,19 @@ pub fn audio_set_bus_muted(
 }
 
 #[tauri::command]
+pub fn audio_set_bus_route(
+    id: String,
+    output_left: u16,
+    output_right: u16,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    let status = service
+        .set_bus_route(&id, output_left, output_right)
+        .map_err(|error| error.to_string())?;
+    value(status)
+}
+
+#[tauri::command]
 pub fn audio_cancel_transition(
     service: State<'_, AudioService>,
 ) -> Result<Value, String> {
