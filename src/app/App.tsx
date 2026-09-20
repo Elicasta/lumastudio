@@ -22,7 +22,7 @@ import {
   WandSparkles
 } from "lucide-react";
 import { demoSetlist, goodness } from "../domain/demo";
-import type { CountInSettings, ImportStep, Page, Song } from "../domain/types";
+import type { BuildTool, CountInSettings, ImportStep, Page, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import {
   buildAutomaticGuideTimeline,
@@ -44,19 +44,26 @@ import { checkForAppUpdate } from "../services/updater";
 import { useAudioEngine, type AudioEngineController } from "../hooks/useAudioEngine";
 import type { NativeAudioStatus, NativeAudioTrack } from "../services/audio";
 
-const nav: Array<{ page: Page; label: string; icon: typeof Music2 }> = [
-  { page: "setlist", label: "Setlist", icon: ListMusic },
-  { page: "songs", label: "Songs", icon: Music2 },
-  { page: "arrangement", label: "Arrangement", icon: AudioLines },
-  { page: "performance", label: "Performance", icon: Play },
-  { page: "pads", label: "Pads", icon: Grid2X2 },
-  { page: "mixer", label: "Mixer", icon: SlidersHorizontal },
-  { page: "lighting", label: "Lighting", icon: Lightbulb },
-  { page: "midi", label: "MIDI", icon: Radio },
-  { page: "video", label: "Video", icon: Clapperboard },
-  { page: "sources", label: "Sources", icon: Upload },
-  { page: "connections", label: "Devices", icon: Cable },
-  { page: "settings", label: "Settings", icon: Settings }
+const workspaceNav: Array<{ page: Workspace; label: string; icon: typeof Music2 }> = [
+  { page: "import", label: "Import", icon: Upload },
+  { page: "build", label: "Build", icon: WandSparkles },
+  { page: "show", label: "Show", icon: ListMusic },
+  { page: "live", label: "Live", icon: Play }
+];
+
+const buildNav: Array<{ tool: BuildTool; label: string; icon: typeof Music2 }> = [
+  { tool: "arrangement", label: "Arrangement", icon: AudioLines },
+  { tool: "mixer", label: "Mixer", icon: SlidersHorizontal },
+  { tool: "pads", label: "Pads", icon: Grid2X2 },
+  { tool: "lighting", label: "Lighting", icon: Lightbulb },
+  { tool: "midi", label: "MIDI", icon: Radio },
+  { tool: "video", label: "Video / NDI", icon: Clapperboard }
+];
+
+const showNav: Array<{ tool: ShowTool; label: string; icon: typeof Music2 }> = [
+  { tool: "setlist", label: "Setlist", icon: ListMusic },
+  { tool: "connections", label: "Connections", icon: Cable },
+  { tool: "settings", label: "Settings", icon: Settings }
 ];
 
 function fmt(seconds: number) {
@@ -64,7 +71,9 @@ function fmt(seconds: number) {
 }
 
 export function App() {
-  const [page, setPage] = useState<Page>("setlist");
+  const [page, setPage] = useState<Page>("show");
+  const [buildTool, setBuildTool] = useState<BuildTool>("arrangement");
+  const [showTool, setShowTool] = useState<ShowTool>("setlist");
   const [selectedSong, setSelectedSong] = useState<Song>(goodness);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -481,33 +490,55 @@ export function App() {
           onStop={stopPlayback}
         />
         <div className="workspace">
-          {page === "setlist" && (
-            <SetlistPage
-              selected={selectedSong}
-              audio={audio}
-              onSelect={(song) => void selectSetlistSong(song)}
-              onOpenArrangement={() => setPage("arrangement")}
-              onImport={() => setImportOpen(true)}
-              onSongChange={setSelectedSong}
-              onStart={startPlayback}
-              onPause={pausePlayback}
-            />
+          {page === "import" && (
+            <Sources audio={audio} onLoaded={(tracks, status) => {
+              applyNativeTracks(tracks, status);
+              setBuildTool("arrangement");
+              setPage("build");
+            }} />
           )}
-          {page === "songs" && (
-            <SongsPage
-              selected={selectedSong}
-              onSelect={(song) => void selectSetlistSong(song)}
-              onOpenArrangement={() => setPage("arrangement")}
-              onImport={() => setImportOpen(true)}
-            />
+
+          {page === "build" && (
+            <>
+              <ToolRail
+                items={buildNav}
+                active={buildTool}
+                onSelect={(tool) => setBuildTool(tool as BuildTool)}
+              />
+              {buildTool === "arrangement" && <Arrangement song={selectedSong} onSongChange={setSelectedSong} />}
+              {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
+              {buildTool === "pads" && <Pads />}
+              {buildTool === "lighting" && <Lighting song={selectedSong} />}
+              {buildTool === "midi" && <UnavailableFeature title="MIDI" text="Native MIDI routing is being wired into the v0.3 runtime." />}
+              {buildTool === "video" && <UnavailableFeature title="Video / NDI" text="Video compositor, display output and NDI sender are being wired into the v0.3 runtime." />}
+            </>
           )}
-          {page === "arrangement" && (
-            <Arrangement
-              song={selectedSong}
-              onSongChange={setSelectedSong}
-            />
+
+          {page === "show" && (
+            <>
+              <ToolRail
+                items={showNav}
+                active={showTool}
+                onSelect={(tool) => setShowTool(tool as ShowTool)}
+              />
+              {showTool === "setlist" && (
+                <SetlistPage
+                  selected={selectedSong}
+                  audio={audio}
+                  onSelect={(song) => void selectSetlistSong(song)}
+                  onOpenArrangement={() => { setBuildTool("arrangement"); setPage("build"); }}
+                  onImport={() => setPage("import")}
+                  onSongChange={setSelectedSong}
+                  onStart={startPlayback}
+                  onPause={pausePlayback}
+                />
+              )}
+              {showTool === "connections" && <Connections audio={audio} remote={remote} song={selectedSong} onSongChange={setSelectedSong} />}
+              {showTool === "settings" && <SettingsPage audio={audio} />}
+            </>
           )}
-          {page === "performance" && (
+
+          {page === "live" && (
             <Performance
               song={selectedSong}
               current={currentSection}
@@ -520,41 +551,6 @@ export function App() {
               onLaunchSection={(index) => void launchSection(index)}
             />
           )}
-          {page === "pads" && <Pads />}
-          {page === "mixer" && <Mixer song={selectedSong} audio={audio} />}
-          {page === "lighting" && <Lighting song={selectedSong} />}
-          {page === "midi" && (
-            <UtilityPage
-              title="MIDI"
-              icon={Radio}
-              text="Patch changes, notes, CC automation, MIDI clock and device routing live here."
-            />
-          )}
-          {page === "video" && (
-            <UtilityPage
-              title="Video"
-              icon={Clapperboard}
-              text="Section-driven local video, backgrounds, playback cues and external video outputs."
-            />
-          )}
-          {page === "sources" && (
-            <Sources
-              audio={audio}
-              onLoaded={(tracks, status) => {
-                applyNativeTracks(tracks, status);
-                setPage("arrangement");
-              }}
-            />
-          )}
-          {page === "connections" && (
-            <Connections
-              audio={audio}
-              remote={remote}
-              song={selectedSong}
-              onSongChange={setSelectedSong}
-            />
-          )}
-          {page === "settings" && <SettingsPage audio={audio} />}
         </div>
       </main>
       {importOpen && (
@@ -583,31 +579,50 @@ function Sidebar({
     <aside className="sidebar">
       <div className="brand">
         <div className="brand-mark">L</div>
-        <div>
-          <strong>LUMARIG</strong>
-          <span>STUDIO · BETA 0.2.0</span>
-        </div>
+        <div><strong>LUMARIG</strong><span>STUDIO · BETA 0.3</span></div>
       </div>
-      <nav>
-        {nav.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.page}
-              className={page === item.page ? "nav active" : "nav"}
-              onClick={() => onPage(item.page)}
-            >
-              <Icon size={17} />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+      <nav className="workspace-nav">
+        {workspaceNav.map(({ page: target, label, icon: Icon }) => (
+          <button key={target} className={page === target ? "active" : ""} onClick={() => onPage(target)}>
+            <Icon size={17} /><span>{label}</span>
+          </button>
+        ))}
       </nav>
-      <div className="sidebar-status">
-        <span className="dot ok" /> LumaRig Connected
-        <small>Audio · MIDI · Lighting ready</small>
-      </div>
+      <div className="sidebar-bottom"><span>WORKFLOW</span><strong>IMPORT → BUILD → SHOW → LIVE</strong></div>
     </aside>
+  );
+}
+
+function ToolRail({
+  items,
+  active,
+  onSelect
+}: {
+  items: Array<{ tool: string; label: string; icon: typeof Music2 }>;
+  active: string;
+  onSelect: (tool: string) => void;
+}) {
+  return (
+    <div className="tool-rail panel">
+      {items.map(({ tool, label, icon: Icon }) => (
+        <button key={tool} className={active === tool ? "active" : ""} onClick={() => onSelect(tool)}>
+          <Icon size={15} /> {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function UnavailableFeature({ title, text }: { title: string; text: string }) {
+  return (
+    <section>
+      <div className="page-head"><div><h1>{title}</h1><p>{text}</p></div></div>
+      <div className="panel utility">
+        <h2>Runtime not connected yet</h2>
+        <p>{text} Controls stay disabled until the native provider is available.</p>
+        <button className="primary" disabled>Unavailable in this build</button>
+      </div>
+    </section>
   );
 }
 
