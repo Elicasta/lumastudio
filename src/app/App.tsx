@@ -33,6 +33,7 @@ import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, S
 import { adjacentSong } from "../domain/setlist";
 import { sectionCueDispatch } from "../domain/cues";
 import { dispatchSectionCue } from "../services/cueDispatcher";
+import { sendMidiPatch } from "../services/midi";
 import {
   buildAutomaticGuideTimeline,
   countPulseForSection,
@@ -497,6 +498,7 @@ export function App() {
     const cue = sectionCueDispatch(selectedSong, section);
     void dispatchSectionCue(cue, {
       video: project.video,
+      sendMidiPatch,
       sendLumaRig: lumarig.state === "connected" ? (command) => lumarig.send(command) : undefined
     });
   }, [selectedSong, currentSection, project.video, lumarig.state, lumarig.send]);
