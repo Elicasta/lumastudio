@@ -126,7 +126,7 @@ impl AudioService {
         Ok(engine.status())
     }
 
-    pub fn load_pad(&self, index: usize, path: &str, looped: bool, gain_db: f32, width: f32, octave: i32) -> Result<(), AudioError> {
+    pub fn load_pad(&self, index: usize, path: &str, looped: bool, gain_db: f32, width: f32, octave: i32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
         if guard.is_none() { *guard = Some(AudioEngine::new()?); }
         let engine = guard.as_ref().expect("initialized above");
@@ -146,7 +146,7 @@ impl AudioService {
             width: width.clamp(0.0, 2.0),
             playback_rate: 2.0_f32.powi(octave.clamp(-2, 2)),
         })?;
-        engine.configure_pad(index, gain_db, width, 10, 1800)?;
+        engine.configure_pad(index, gain_db, width, attack_ms, release_ms)?;
         Ok(())
     }
 
