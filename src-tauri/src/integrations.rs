@@ -1,8 +1,108 @@
 use reqwest::{Client, StatusCode};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use std::time::Duration;
+use std::{
+    collections::HashSet,
+    net::{IpAddr, UdpSocket},
+    time::{Duration, Instant},
+};
 
 const PCO_BASE: &str = "https://api.planningcenteronline.com/services/v2";
+const LUMALINK_DISCOVERY_PORT: u16 = 49777;
+const LUMALINK_DISCOVERY_REQUEST: &[u8] = b"LUMALINK_DISCOVER_V1";
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct LumaLinkDiscoveryPacket {
+    protocol: String,
+    protocol_version: u8,
+    node_name: String,
+    platform: String,
+    app_version: String,
+    #[serde(default)]
+    capabilities: Vec<String>,
+    #[serde(default = "default_propresenter_port")]
+    suggested_pro_presenter_port: u16,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LumaLinkNode {
+    address: IpAddr,
+    node_name: String,
+    platform: String,
+    app_version: String,
+    protocol_version: u8,
+    capabilities: Vec<String>,
+    suggested_pro_presenter_port: u16,
+}
+
+fn default_propresenter_port() -> u16 {
+    50001
+}
+
+#[tauri::command]
+pub async fn lumalink_discover(timeout_ms: Option<u64>) -> Result<Vec<LumaLinkNode>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let timeout = Duration::from_millis(timeout_ms.unwrap_or(900).clamp(150, 5000));
+        let socket = UdpSocket::bind(("0.0.0.0", 0))
+            .map_err(|error| format!("Could not open LumaLink discovery socket: {error}"))?;
+        socket
+            .set_broadcast(true)
+            .map_err(|error| format!("Could not enable LumaLink broadcast discovery: {error}"))?;
+        socket
+            .set_read_timeout(Some(Duration::from_millis(120)))
+            .map_err(|error| error.to_string())?;
+
+        socket
+            .send_to(
+                LUMALINK_DISCOVERY_REQUEST,
+                ("255.255.255.255", LUMALINK_DISCOVERY_PORT),
+            )
+            .map_err(|error| format!("Could not broadcast LumaLink discovery: {error}"))?;
+
+        let started = Instant::now();
+        let mut buffer = [0_u8; 2048];
+        let mut seen = HashSet::<IpAddr>::new();
+        let mut nodes = Vec::<LumaLinkNode>::new();
+
+        while started.elapsed() < timeout {
+            match socket.recv_from(&mut buffer) {
+                Ok((size, source)) => {
+                    let Ok(packet) = serde_json::from_slice::<LumaLinkDiscoveryPacket>(&buffer[..size]) else {
+                        continue;
+                    };
+                    if packet.protocol != "lumalink.discovery" || packet.protocol_version != 1 {
+                        continue;
+                    }
+                    if !seen.insert(source.ip()) {
+                        continue;
+                    }
+                    nodes.push(LumaLinkNode {
+                        address: source.ip(),
+                        node_name: packet.node_name,
+                        platform: packet.platform,
+                        app_version: packet.app_version,
+                        protocol_version: packet.protocol_version,
+                        capabilities: packet.capabilities,
+                        suggested_pro_presenter_port: packet.suggested_pro_presenter_port,
+                    });
+                }
+                Err(error)
+                    if error.kind() == std::io::ErrorKind::WouldBlock
+                        || error.kind() == std::io::ErrorKind::TimedOut => {}
+                Err(error) => {
+                    return Err(format!("LumaLink discovery failed: {error}"));
+                }
+            }
+        }
+
+        nodes.sort_by(|left, right| left.node_name.cmp(&right.node_name));
+        Ok(nodes)
+    })
+    .await
+    .map_err(|error| format!("LumaLink discovery task failed: {error}"))?
+}
 
 fn http_client() -> Result<Client, String> {
     Client::builder()
@@ -145,14 +245,14 @@ pub async fn propresenter_previous(host: String, port: u16) -> Result<(), String
 pub async fn propresenter_trigger_group(
     host: String,
     port: u16,
-    group: String,
+    group_id: String,
 ) -> Result<(), String> {
     let client = http_client()?;
     let base = propresenter_base(&host, port)?;
-    if group.trim().is_empty() {
+    if group_id.trim().is_empty() {
         return Err("ProPresenter group cannot be empty.".into());
     }
-    let encoded = urlencoding::encode(group.trim());
+    let encoded = urlencoding::encode(group_id.trim());
     trigger_get(
         &client,
         &format!("{}/v1/presentation/active/group/{}/trigger", base, encoded),
