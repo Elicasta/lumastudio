@@ -477,6 +477,28 @@ mod tests {
     }
 
     #[test]
+    fn scheduled_preroll_starts_song_on_the_target_frame() {
+        let state = test_state(vec![
+            0.1, 0.1,
+            0.2, 0.2,
+            0.3, 0.3,
+            0.4, 0.4,
+        ]);
+        state.transport.pause();
+        state.transport.seek_frame(0);
+        state.transition.schedule(2, 2, 0, 1, 2, false);
+
+        let mut output = vec![0.0_f32; 6];
+        render(&mut output, 2, 48_000, &state);
+
+        assert!(!state.transition.active());
+        assert!(state.transport.is_playing());
+        assert_eq!(state.transport.frame(), 3);
+        assert_eq!(output[4], 0.2);
+        assert_eq!(output[5], 0.2);
+    }
+
+    #[test]
     fn solo_excludes_non_solo_tracks() {
         let state = RealtimeState::new();
 
