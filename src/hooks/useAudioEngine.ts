@@ -39,10 +39,10 @@ export function useAudioEngine() {
 
     const timer = window.setInterval(() => {
       void refresh();
-    }, status.playing ? 75 : 300);
+    }, status.playing || status.countInActive ? 50 : 300);
 
     return () => window.clearInterval(timer);
-  }, [refresh, status.initialized, status.playing]);
+  }, [refresh, status.countInActive, status.initialized, status.playing]);
 
   const chooseAndLoad = useCallback(async () => {
     setBusy(true);
