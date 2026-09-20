@@ -13,7 +13,8 @@
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
     "tauri:build": "tauri build",
-    "dmg": "tauri build --bundles dmg"
+    "dmg": "tauri build --bundles dmg",
+    "voice:dev": "node scripts/generate-macos-test-voice-pack.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
