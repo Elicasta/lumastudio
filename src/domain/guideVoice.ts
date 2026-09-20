@@ -1,6 +1,9 @@
-import { sectionStartSeconds, secondsPerBeat } from "./timing";
+import {
+  countPulseForMeter,
+  sectionStartSeconds,
+  type CountPulse
+} from "./timing";
 import type {
-  CountFeel,
   GuideVoiceSettings,
   Section,
   Song
@@ -222,11 +225,6 @@ export function planSongStartGuide(song: Song): GuideCuePlan {
   });
 }
 
-export interface CountPulse {
-  pulsesPerBar: number;
-  pulseSeconds: number;
-}
-
 export function countPulseForSection(
   song: Song,
   section?: Section
@@ -234,31 +232,6 @@ export function countPulseForSection(
   const meter = section?.meterOverride ?? song.meter;
   const bpm = section?.tempoOverride ?? song.bpm;
   return countPulseForMeter(bpm, meter, song.guideVoice.countFeel);
-}
-
-export function countPulseForMeter(
-  bpm: number,
-  meter: [number, number],
-  feel: CountFeel
-): CountPulse {
-  const notatedPulseSeconds = secondsPerBeat(bpm, meter);
-  const compound =
-    feel === "compound" &&
-    meter[1] === 8 &&
-    meter[0] >= 6 &&
-    meter[0] % 3 === 0;
-
-  if (compound) {
-    return {
-      pulsesPerBar: meter[0] / 3,
-      pulseSeconds: notatedPulseSeconds * 3
-    };
-  }
-
-  return {
-    pulsesPerBar: meter[0],
-    pulseSeconds: notatedPulseSeconds
-  };
 }
 
 export function buildAutomaticGuideTimeline(song: Song): Array<{
