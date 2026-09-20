@@ -24,6 +24,7 @@ export const goodness: Song = {
   key: "Ab",
   meter: [4, 4],
   durationSeconds: 318,
+  downbeatSeconds: 0,
   status: "ready",
   countIn: { mode: "bars", value: 1 },
   manualJumpCountIn: { mode: "adaptive", minBeats: 2 },
