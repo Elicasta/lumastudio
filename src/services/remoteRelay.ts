@@ -40,6 +40,7 @@ export class RemoteRelay {
   private pendingState: RemoteStudioState | null = null;
   private revision = 0;
   private closed = false;
+  private online = false;
 
   constructor(
     private readonly studioId: string,
@@ -80,6 +81,28 @@ export class RemoteRelay {
     }, 100);
   }
 
+  async rotatePairCode() {
+    const session = this.session;
+    if (!session) {
+      await this.start();
+      return;
+    }
+
+    try {
+      const rotated = await invokeSessionFunction<RemoteSessionInfo>({
+        action: "rotate",
+        sessionId: session.sessionId,
+        studioToken: session.studioToken
+      });
+
+      this.session = rotated;
+      this.events.onSession(rotated);
+      this.events.onError(null);
+    } catch (cause) {
+      this.fail(cause);
+    }
+  }
+
   async restart() {
     await this.stop(false);
     await this.start();
@@ -97,6 +120,8 @@ export class RemoteRelay {
       window.clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+
+    this.online = false;
 
     const channel = this.channel;
     this.channel = null;
@@ -173,10 +198,19 @@ export class RemoteRelay {
       channel.subscribe((status, error) => {
         if (status === "SUBSCRIBED") {
           settled = true;
+          this.online = true;
           this.events.onStatus("online");
           void this.flushState(true);
           resolve();
           return;
+        }
+
+        if (
+          status === "CHANNEL_ERROR" ||
+          status === "TIMED_OUT" ||
+          status === "CLOSED"
+        ) {
+          this.online = false;
         }
 
         if (
@@ -208,7 +242,7 @@ export class RemoteRelay {
   }
 
   private eventsStatusOffline() {
-    return this.closed || !this.channel;
+    return this.closed || !this.channel || !this.online;
   }
 
   private startHeartbeat() {
