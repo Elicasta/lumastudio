@@ -67,3 +67,22 @@ npm run dmg
 - YouTube remains a reference/playback source. Licensed/local media is used for processing, warping and stem work.
 
 Read [SECRETS.md](./SECRETS.md) before the first release.
+
+
+## Automatic Sections and Count-In
+
+Normal playback follows the mapped Song Arrangement automatically. Operators do not need to press Verse, Chorus, Bridge, or other Section buttons during a normal run.
+
+Manual Section controls are overrides:
+
+- tapping a Section or GO while playing calculates the current musical bar/beat
+- the current audio keeps playing during the preparation window
+- Adaptive Count starts on a clean beat and lands the requested Section on beat 1
+- if the target Section changes tempo or meter, the count establishes the destination pulse
+- per-Song start count-in supports Off, bars, fixed beats, and custom beat counts
+- per-Section manual-jump count-in can inherit the Song setting or override it
+- no-count jumps remain beat-quantized rather than cutting at a random sample
+- detected downbeat offset anchors the musical grid without trimming source media
+
+Count-in clicks are currently generated inside the native audio engine. Dedicated click/guide output-bus routing and spoken guide samples are separate follow-up work.
+
