@@ -4,6 +4,8 @@ import {
   audioPlay,
   audioSeek,
   audioStop,
+  audioScheduleTransition,
+  audioCancelTransition,
   chooseWavTracks,
   getAudioStatus,
   loadWavSong,
@@ -89,6 +91,31 @@ export function useAudioEngine() {
       setError(messageOf(cause));
     }
   }, []);
+  const scheduleTransition = useCallback(async (options: {
+    targetSeconds: number;
+    delaySeconds: number;
+    firstCountDelaySeconds: number;
+    beatSeconds: number;
+    countBeats: number;
+    keepAudio: boolean;
+  }) => {
+    setError(null);
+    try {
+      setStatus(await audioScheduleTransition(options));
+    } catch (cause) {
+      setError(messageOf(cause));
+    }
+  }, []);
+
+  const cancelTransition = useCallback(async () => {
+    setError(null);
+    try {
+      setStatus(await audioCancelTransition());
+    } catch (cause) {
+      setError(messageOf(cause));
+    }
+  }, []);
+
 
   return {
     status,
@@ -101,6 +128,8 @@ export function useAudioEngine() {
     playPause,
     stop,
     seek,
+    scheduleTransition,
+    cancelTransition,
     setTrackGain: setNativeTrackGain,
     setTrackMuted: setNativeTrackMuted,
     setTrackSolo: setNativeTrackSolo
