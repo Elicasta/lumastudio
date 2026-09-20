@@ -503,7 +503,7 @@ export function App() {
               <ToolRail
                 items={buildNav}
                 active={buildTool}
-                onSelect={(tool) => setBuildTool(tool as BuildTool)}
+                onSelect={setBuildTool}
               />
               {buildTool === "arrangement" && <Arrangement song={selectedSong} onSongChange={setSelectedSong} />}
               {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
@@ -519,7 +519,7 @@ export function App() {
               <ToolRail
                 items={showNav}
                 active={showTool}
-                onSelect={(tool) => setShowTool(tool as ShowTool)}
+                onSelect={setShowTool}
               />
               {showTool === "setlist" && (
                 <SetlistPage
@@ -559,7 +559,8 @@ export function App() {
           onNativeLoaded={(tracks, status) => {
             applyNativeTracks(tracks, status);
             setImportOpen(false);
-            setPage("arrangement");
+            setBuildTool("arrangement");
+            setPage("build");
           }}
           onClose={() => setImportOpen(false)}
         />
@@ -593,14 +594,14 @@ function Sidebar({
   );
 }
 
-function ToolRail({
+function ToolRail<T extends string>({
   items,
   active,
   onSelect
 }: {
-  items: Array<{ tool: string; label: string; icon: typeof Music2 }>;
-  active: string;
-  onSelect: (tool: string) => void;
+  items: Array<{ tool: T; label: string; icon: typeof Music2 }>;
+  active: T;
+  onSelect: (tool: T) => void;
 }) {
   return (
     <div className="tool-rail panel">
