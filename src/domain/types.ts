@@ -57,6 +57,7 @@ export interface Setlist {
 
 export type Page =
   | "setlist"
+  | "songs"
   | "arrangement"
   | "performance"
   | "pads"
