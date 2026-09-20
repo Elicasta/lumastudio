@@ -1194,6 +1194,51 @@ function Arrangement({
     });
   }
 
+  function setSectionDirectionCue(token?: string, label?: string) {
+    if (!selectedSection) return;
+
+    const markerId = "section-direction-" + selectedSection.id;
+    const withoutCurrent = song.guideMarkers.filter(
+      (marker) => marker.id !== markerId
+    );
+
+    onSongChange({
+      ...song,
+      guideMarkers: token
+        ? [
+            ...withoutCurrent,
+            {
+              id: markerId,
+              bar: selectedSection.startBar,
+              beat: 1,
+              token,
+              label
+            }
+          ]
+        : withoutCurrent
+    });
+  }
+
+  const selectedDirectionMarker = selectedSection
+    ? song.guideMarkers.find(
+        (marker) => marker.id === "section-direction-" + selectedSection.id
+      )
+    : undefined;
+
+  const directionCues = [
+    ["direction.last-time", "Last Time"],
+    ["direction.one-more", "One More"],
+    ["direction.two-more", "Two More"],
+    ["direction.hold", "Hold"],
+    ["direction.stop", "Stop"],
+    ["direction.repeat", "Repeat"],
+    ["direction.again", "Again"],
+    ["direction.build", "Build"],
+    ["direction.down", "Down"],
+    ["direction.big", "Big"],
+    ["direction.soft", "Soft"]
+  ] as const;
+
   return (
     <section className="arrange-page">
       <div className="page-head">
@@ -1446,6 +1491,32 @@ function Arrangement({
           <Field label="MIDI Patch" value={selectedSection.midiPatch ?? "None"} />
           <Field label="Video" value={selectedSection.videoCue ?? "None"} />
           <Field label="Follow" value="Automatic Timeline" />
+
+          <div className="section-direction-editor">
+            <small>GUIDE CUE · SECTION START</small>
+            <div className="direction-cue-options">
+              <button
+                className={!selectedDirectionMarker ? "active" : ""}
+                onClick={() => setSectionDirectionCue()}
+              >
+                None
+              </button>
+              {directionCues.map(([token, label]) => (
+                <button
+                  key={token}
+                  className={
+                    selectedDirectionMarker?.token === token ? "active" : ""
+                  }
+                  onClick={() => setSectionDirectionCue(token, label)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <span>
+              Spoken on beat 1 of {selectedSection.name}. Uses the currently loaded voice pack.
+            </span>
+          </div>
 
           <div className="section-count-editor">
             <small>MANUAL JUMP COUNT-IN</small>
