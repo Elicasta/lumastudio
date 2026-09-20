@@ -10,17 +10,22 @@ export function VideoProgram({ program, positionSeconds, playing, sectionId, pre
   sectionId?: string;
   preview?: boolean;
 }) {
-  const resolved = activeVideoClip(program, positionSeconds, sectionId);
+  const state = program?.state ?? "live";
+  const frozenPosition = useRef(positionSeconds);
+  if (state !== "freeze") frozenPosition.current = positionSeconds;
+  const resolved = activeVideoClip(program, state === "freeze" ? frozenPosition.current : positionSeconds, sectionId);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     const video = videoRef.current;
     if (!video || !resolved || resolved.clip.source.kind !== "local") return;
     if (Math.abs(video.currentTime - resolved.sourceSeconds) > 0.35) video.currentTime = resolved.sourceSeconds;
-    if (playing) void video.play().catch(() => undefined);
+    if (playing && state !== "freeze") void video.play().catch(() => undefined);
     else video.pause();
   }, [resolved?.clip.id, resolved?.sourceSeconds, playing]);
 
+  if (state === "black") return <div className="video-program-black" />;
+  if (state === "clear") return <div className="video-program-clear" />;
   if (!resolved) return <div className="video-program-clear">{preview ? "No active clip at playhead" : null}</div>;
   const { clip, sourceSeconds } = resolved;
   if (clip.source.kind === "youtube") {
