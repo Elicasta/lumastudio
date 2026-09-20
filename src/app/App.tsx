@@ -24,7 +24,7 @@ import {
 import { demoSetlist, goodness } from "../domain/demo";
 import { createProject } from "../domain/project";
 import { openProject, saveProject } from "../services/projectStore";
-import type { BuildTool, CountInSettings, ImportStep, Page, ShowTool, Song, Workspace } from "../domain/types";
+import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import {
   buildAutomaticGuideTimeline,
@@ -787,7 +787,7 @@ function SetlistPage({
   onPause
 }: {
   selected: Song;
-  setlist: typeof demoSetlist;
+  setlist: Setlist;
   audio: AudioEngineController;
   onSelect: (song: Song) => void;
   onOpenArrangement: () => void;
