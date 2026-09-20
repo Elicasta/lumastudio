@@ -20,6 +20,7 @@ export function useRemoteRelay(
   const [status, setStatus] = useState<RemoteRelayStatus>("idle");
   const [session, setSession] = useState<RemoteSessionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [remoteClients, setRemoteClients] = useState(0);
 
   commandRef.current = onCommand;
 
@@ -28,6 +29,7 @@ export function useRemoteRelay(
       onStatus: setStatus,
       onSession: setSession,
       onError: setError,
+      onRemoteClients: setRemoteClients,
       onCommand: (command) => commandRef.current(command)
     });
 
@@ -48,6 +50,7 @@ export function useRemoteRelay(
     status,
     session,
     error,
+    remoteClients,
     rotatePairCode: () => relayRef.current?.rotatePairCode(),
     restart: () => relayRef.current?.restart()
   };
