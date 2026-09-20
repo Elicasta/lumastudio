@@ -85,7 +85,7 @@ export function App() {
       return;
     }
 
-    if (audio.status.countInActive) return;
+    if (audio.status.transitionActive) return;
     if (audio.status.playing) return;
 
     const position = audio.status.positionSeconds ?? 0;
@@ -115,7 +115,7 @@ export function App() {
     audio.playPause,
     audio.scheduleTransition,
     audio.seek,
-    audio.status.countInActive,
+    audio.status.transitionActive,
     audio.status.playing,
     audio.status.positionSeconds,
     selectedSong
@@ -127,7 +127,7 @@ export function App() {
       return;
     }
 
-    if (audio.status.countInActive) {
+    if (audio.status.transitionActive) {
       await audio.cancelTransition();
       setQueuedManualSection(null);
       return;
@@ -140,7 +140,7 @@ export function App() {
     audio.cancelTransition,
     audio.hasLoadedAudio,
     audio.playPause,
-    audio.status.countInActive,
+    audio.status.transitionActive,
     audio.status.playing
   ]);
 
@@ -159,7 +159,7 @@ export function App() {
       if (!target) return;
 
       if (audio.hasLoadedAudio && audio.status.playing) {
-        if (audio.status.countInActive) {
+        if (audio.status.transitionActive) {
           await audio.cancelTransition();
         }
 
@@ -190,7 +190,7 @@ export function App() {
       audio.hasLoadedAudio,
       audio.scheduleTransition,
       audio.seek,
-      audio.status.countInActive,
+      audio.status.transitionActive,
       audio.status.playing,
       audio.status.positionSeconds,
       selectedSong
@@ -199,7 +199,7 @@ export function App() {
 
   useEffect(() => {
     if (!audio.hasLoadedAudio || !audio.status.playing) return;
-    if (audio.status.countInActive) return;
+    if (audio.status.transitionActive) return;
 
     const index = sectionIndexAtSeconds(
       selectedSong,
@@ -210,7 +210,7 @@ export function App() {
     setQueuedManualSection((queued) => (queued === index ? null : queued));
   }, [
     audio.hasLoadedAudio,
-    audio.status.countInActive,
+    audio.status.transitionActive,
     audio.status.playing,
     audio.status.positionSeconds,
     selectedSong
@@ -562,9 +562,10 @@ function Transport({
     ? Boolean(audio.status.playing)
     : previewPlaying;
   const counting = Boolean(audio.status.countInActive);
+  const transitionBusy = Boolean(audio.status.transitionActive);
 
   async function togglePlay() {
-    if (playing || counting) {
+    if (playing || transitionBusy) {
       await onPause();
     } else {
       await onStart();
@@ -579,7 +580,9 @@ function Transport({
     ? audio.status.countInBeat
       ? "COUNT " + audio.status.countInBeat + "/" + (audio.status.countInTotal ?? 0)
       : "COUNT READY"
-    : "1 Bar ⌄";
+    : transitionBusy
+      ? "JUMP QUEUED"
+      : "1 Bar ⌄";
 
   return (
     <header className="transport">
@@ -591,16 +594,16 @@ function Transport({
       </div>
       <div className="meter">{song.meter[0]} / {song.meter[1]}</div>
       <button
-        className={playing || counting ? "transport-btn live" : "transport-btn"}
+        className={playing || transitionBusy ? "transport-btn live" : "transport-btn"}
         onClick={() => void togglePlay()}
-        aria-label={counting ? "Cancel count-in" : playing ? "Pause" : "Play"}
+        aria-label={transitionBusy ? "Cancel queued transition" : playing ? "Pause" : "Play"}
       >
         <Play size={19} fill="currentColor" />
       </button>
       <button className="transport-btn" onClick={() => void stop()}>
         <CircleStop size={18} />
       </button>
-      <div className={counting ? "quantize counting" : "quantize"}>{countLabel}</div>
+      <div className={transitionBusy ? "quantize counting" : "quantize"}>{countLabel}</div>
       <div className="transport-spacer" />
       <Status
         label={audio.hasLoadedAudio ? "Audio Live" : "Audio"}
@@ -663,7 +666,7 @@ function SetlistPage({
     : 29;
   const previousSong = adjacentSong(demoSetlist, selected.id, -1);
   const nextSong = adjacentSong(demoSetlist, selected.id, 1);
-  const transportBusy = Boolean(audio.status.countInActive);
+  const transportBusy = Boolean(audio.status.transitionActive);
   const transportPlaying = Boolean(audio.status.playing);
 
   return (
@@ -1392,6 +1395,7 @@ function Performance({
     audio.status.positionSeconds ?? sectionStartSeconds(song, current)
   );
   const countActive = Boolean(audio.status.countInActive);
+  const transitionActive = Boolean(audio.status.transitionActive);
   const queued = queuedManualSection !== null
     ? song.sections[queuedManualSection]
     : null;
@@ -1433,19 +1437,21 @@ function Performance({
         ))}
       </div>
 
-      {countActive && (
+      {transitionActive && (
         <div className="count-in-live panel">
           <div>
             <small>MANUAL TRANSITION</small>
             <strong>{queued ? "→ " + queued.name : "COUNT-IN"}</strong>
           </div>
           <div className="count-number">
-            {audio.status.countInBeat
-              ? audio.status.countInBeat
-              : "•"}
-            <span>/ {audio.status.countInTotal ?? 0}</span>
+            {countActive
+              ? audio.status.countInBeat || "•"
+              : "→"}
+            <span>
+              {countActive ? "/ " + (audio.status.countInTotal ?? 0) : " quantized"}
+            </span>
           </div>
-          <p>Landing on beat 1</p>
+          <p>{countActive ? "Landing on beat 1" : "No count · beat-quantized jump"}</p>
         </div>
       )}
 
@@ -1484,7 +1490,13 @@ function Performance({
         <div className="live-status panel">
           <h3>Live Status</h3>
           <Status
-            label={countActive ? "Count-In Active" : "Timeline Auto-Follow"}
+            label={
+              countActive
+                ? "Count-In Active"
+                : transitionActive
+                  ? "Section Jump Queued"
+                  : "Timeline Auto-Follow"
+            }
           />
           <Status label="Audio Engine" ok={!audio.status.deviceError} />
           <Status label="MIDI Clock" ok={false} />
@@ -1501,21 +1513,21 @@ function Performance({
 
       <div className="go-row">
         <button
-          disabled={current <= 0 || countActive}
+          disabled={current <= 0 || transitionActive}
           onClick={() => onLaunchSection(Math.max(0, current - 1))}
         >
           <ChevronLeft /> Previous Section
         </button>
         <button
           className="go"
-          disabled={countActive || current >= song.sections.length - 1}
+          disabled={transitionActive || current >= song.sections.length - 1}
           onClick={() => onLaunchSection(automaticNextIndex)}
         >
           GO
           <small>MANUAL OVERRIDE</small>
         </button>
         <button
-          disabled={countActive || current >= song.sections.length - 1}
+          disabled={transitionActive || current >= song.sections.length - 1}
           onClick={() => onLaunchSection(automaticNextIndex)}
         >
           Jump Next <ChevronRight />
