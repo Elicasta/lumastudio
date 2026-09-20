@@ -1962,6 +1962,11 @@ function Mixer({
     ["guide", "Guide", audio.status.guideBus],
     ["master", "Master", audio.status.masterBus]
   ] as const;
+  const outputChannels = Math.max(1, audio.status.outputChannels ?? 2);
+  const outputOptions = Array.from(
+    { length: outputChannels },
+    (_, index) => index + 1
+  );
 
   return (
     <section>
@@ -2080,6 +2085,51 @@ function Mixer({
                 void audio.setBusGain(id, Number(event.currentTarget.value))
               }
             />
+            {id !== "master" && (
+              <div className="bus-route">
+                <label>
+                  <span>L</span>
+                  <select
+                    value={bus?.outputLeft ?? 1}
+                    disabled={!audio.status.initialized}
+                    onChange={(event) =>
+                      void audio.setBusRoute(
+                        id,
+                        Number(event.currentTarget.value),
+                        bus?.outputRight ?? Math.min(2, outputChannels)
+                      )
+                    }
+                  >
+                    {outputOptions.map((channel) => (
+                      <option key={channel} value={channel}>
+                        Out {channel}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>R</span>
+                  <select
+                    value={bus?.outputRight ?? Math.min(2, outputChannels)}
+                    disabled={!audio.status.initialized}
+                    onChange={(event) =>
+                      void audio.setBusRoute(
+                        id,
+                        bus?.outputLeft ?? 1,
+                        Number(event.currentTarget.value)
+                      )
+                    }
+                  >
+                    {outputOptions.map((channel) => (
+                      <option key={channel} value={channel}>
+                        Out {channel}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            )}
+
             <button
               className={bus?.muted ? "channel-toggle active danger" : "channel-toggle"}
               disabled={!audio.status.initialized}
