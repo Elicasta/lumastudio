@@ -5,7 +5,7 @@ use rubato::{Fft, FixedSync, Resampler};
 
 use super::{
     error::AudioError,
-    model::{PcmTrack, TrackControl},
+    model::{PcmTrack, TrackBus, TrackControl},
 };
 
 #[derive(Debug, Clone)]
@@ -15,6 +15,7 @@ pub struct WavTrackRequest {
     pub path: String,
     pub gain_db: f32,
     pub start_frame: u64,
+    pub bus: TrackBus,
 }
 
 pub fn load_wav_track(
@@ -33,6 +34,7 @@ pub fn load_wav_track(
         name: request.name.clone(),
         samples: Arc::from(samples),
         start_frame: request.start_frame,
+        bus: request.bus,
         control: Arc::new(TrackControl::new(request.gain_db)),
     })
 }
