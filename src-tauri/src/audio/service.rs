@@ -1,10 +1,13 @@
-use std::sync::Mutex;
+use std::{path::Path, sync::Mutex};
 
 use serde::{Deserialize, Serialize};
 
 use super::{
     engine::{AudioEngine, AudioEngineStatus},
     error::AudioError,
+    guide::{
+        load_voice_pack, GuideTimelineEventRequest, GuideTransitionEventRequest,
+    },
     media::{load_wav_track, WavTrackRequest},
     model::SongMix,
 };
@@ -112,6 +115,29 @@ impl AudioService {
         Ok(engine.status())
     }
 
+    pub fn load_voice_pack(&self, directory: &str) -> Result<AudioEngineStatus, AudioError> {
+        let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
+
+        if guard.is_none() {
+            *guard = Some(AudioEngine::new()?);
+        }
+
+        let engine = guard.as_ref().expect("initialized above");
+        let pack = load_voice_pack(Path::new(directory), engine.sample_rate())?;
+        engine.replace_voice_pack(pack);
+        Ok(engine.status())
+    }
+
+    pub fn set_guide_timeline(
+        &self,
+        events: Vec<GuideTimelineEventRequest>,
+    ) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.set_guide_timeline(&events)?;
+            Ok(engine.status())
+        })?
+    }
+
     pub fn play(&self) -> Result<AudioEngineStatus, AudioError> {
         self.with_engine(|engine| {
             engine.play();
@@ -148,6 +174,7 @@ impl AudioService {
         beat_seconds: f64,
         count_beats: u64,
         keep_audio: bool,
+        guide_events: Vec<GuideTransitionEventRequest>,
     ) -> Result<AudioEngineStatus, AudioError> {
         self.with_engine(|engine| {
             engine.schedule_transition_seconds(
@@ -157,9 +184,10 @@ impl AudioService {
                 beat_seconds,
                 count_beats,
                 keep_audio,
-            );
-            engine.status()
-        })
+                &guide_events,
+            )?;
+            Ok(engine.status())
+        })?
     }
 
     pub fn cancel_transition(&self) -> Result<AudioEngineStatus, AudioError> {
@@ -167,6 +195,20 @@ impl AudioService {
             engine.cancel_transition();
             engine.status()
         })
+    }
+
+    pub fn set_bus_gain(&self, id: &str, gain_db: f32) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.set_bus_gain_db(id, gain_db)?;
+            Ok(engine.status())
+        })?
+    }
+
+    pub fn set_bus_muted(&self, id: &str, muted: bool) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.set_bus_muted(id, muted)?;
+            Ok(engine.status())
+        })?
     }
 
     pub fn set_loop(&self, start_seconds: f64, end_seconds: f64) -> Result<(), AudioError> {
