@@ -197,3 +197,40 @@ npm run voice:dev
 ```
 
 This uses the local macOS `say` and `afconvert` utilities to create all 44 required WAV tokens at 48 kHz/24-bit mono under `voice-packs/generated/`. The generated system-voice pack is a development convenience, not the final bundled production voice.
+
+
+## Implemented direction markers
+
+The Arrangement inspector can attach one reusable spoken direction cue to the
+start of a Section. Current core choices are:
+
+- Last Time
+- One More
+- Two More
+- Hold
+- Stop
+- Repeat
+- Again
+- Build
+- Down
+- Big
+- Soft
+
+These are stored as Song `guideMarkers` with bar/beat positions and token IDs.
+They are converted to absolute native Guide events when the Song's Guide timeline
+is prepared. A custom recorded token such as `custom.everybody-in` uses the same
+marker model.
+
+## Musical count position
+
+The native transition scheduler now knows both total count pulses and
+`pulsesPerBar`. That means:
+
+- a two-bar 4/4 count accents beat 1 of both bars
+- a short adaptive 4/4 jump can correctly count beats 3, 4 instead of relabeling
+  the first available pulse as beat 1
+- compound 6/8 can count 1, 2 when the Song uses compound feel
+- the performance UI can display beat-in-bar and count-bar position separately
+
+The voice planner and click generator share this pulse model so spoken numbers,
+click accents, and the destination downbeat stay consistent.
