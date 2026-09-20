@@ -155,9 +155,25 @@ export function planManualSectionJump(
     };
   }
 
-  // Adaptive manual jump: start counting on the next clean beat and land on
-  // the next barline. If there are too few beats left to establish time,
-  // wait one additional bar before the destination jump.
+  // Adaptive manual jump: if the operator lands almost exactly on a barline,
+  // take the clean downbeat immediately. Otherwise start counting on the next
+  // clean beat and land on a later barline. If there are too few beats left to
+  // establish time, wait one additional bar before the destination jump.
+  if (current.beat === 1 && current.beatProgress < 0.08) {
+    return {
+      targetSectionId: targetSection.id,
+      targetSeconds,
+      launchAfterSeconds: 0,
+      countBeats: 0,
+      beatSeconds: current.beatSeconds,
+      firstCountAfterSeconds: 0,
+      sourceBar: current.bar,
+      sourceBeat: current.beat,
+      destinationBar: targetSection.startBar,
+      mode
+    };
+  }
+
   const firstCountAfterSeconds =
     current.beatProgress < 0.02
       ? 0
