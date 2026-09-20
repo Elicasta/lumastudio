@@ -91,6 +91,39 @@ describe("musical timing", () => {
     expect(plan.launchAfterSeconds).toBeCloseTo(oneBeat * 4.5, 5);
   });
 
+  it("establishes a destination tempo before a manual jump", () => {
+    const target = {
+      ...goodness.sections[5],
+      tempoOverride: 84
+    };
+    const oneSourceBeat = 60 / 63;
+    const plan = planManualSectionJump(
+      goodness,
+      oneSourceBeat * 1.5,
+      target
+    );
+
+    expect(plan.countBeats).toBe(4);
+    expect(plan.beatSeconds).toBeCloseTo(60 / 84, 5);
+    expect(plan.firstCountAfterSeconds).toBeCloseTo(oneSourceBeat * 0.5, 5);
+    expect(plan.launchAfterSeconds).toBeCloseTo(
+      oneSourceBeat * 0.5 + 4 * (60 / 84),
+      5
+    );
+  });
+
+  it("uses the destination meter for a bar count-in override", () => {
+    const target = {
+      ...goodness.sections[5],
+      meterOverride: [6, 8] as [number, number],
+      countInOverride: { mode: "bars" as const, value: 1 }
+    };
+    const plan = planManualSectionJump(goodness, 1.2, target);
+
+    expect(plan.countBeats).toBe(6);
+    expect(plan.beatSeconds).toBeCloseTo((60 / 63) * 0.5, 5);
+  });
+
   it("respects a section no-count override", () => {
     const target = {
       ...goodness.sections[3],
