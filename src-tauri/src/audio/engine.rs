@@ -939,3 +939,20 @@ mod tests {
         assert_eq!(output, vec![0.2, 0.2]);
     }
 }
+
+#[cfg(test)]
+mod pad_engine_tests {
+    use super::*;
+
+    #[test]
+    fn realtime_state_has_sixteen_pad_voices() {
+        let state = RealtimeState::new();
+        assert_eq!(state.pads.len(), 16);
+    }
+
+    #[test]
+    fn pads_bus_is_addressable() {
+        let state = RealtimeState::new();
+        assert_eq!(state.pad_bus.output_pair(), (0, 1));
+    }
+}
