@@ -149,12 +149,13 @@ export async function loadWavSong(
   tracks: NativeAudioTrack[]
 ): Promise<NativeAudioStatus> {
   return invoke<NativeAudioStatus>("audio_load_wav_song", {
-    tracks: tracks.map(({ id, name, path, gainDb, startSeconds }) => ({
+    tracks: tracks.map(({ id, name, path, gainDb, startSeconds, kind }) => ({
       id,
       name,
       path,
       gainDb,
-      startSeconds
+      startSeconds,
+      bus: kind === "click" ? "click" : kind === "guide" ? "guide" : "music"
     }))
   });
 }
