@@ -1,4 +1,5 @@
 mod audio;
+mod project;
 
 use audio::AudioService;
 
@@ -28,7 +29,9 @@ pub fn run() {
             audio::audio_set_bus_gain,
             audio::audio_set_bus_muted,
             audio::audio_set_bus_route,
-            audio::audio_cancel_transition
+            audio::audio_cancel_transition,
+            project::project_read,
+            project::project_write
         ])
         .run(tauri::generate_context!())
         .expect("error while running LumaRig Studio");
