@@ -26,14 +26,15 @@ pub struct PadVoice {
     pub attack_frames: AtomicU64,
     pub release_frames: AtomicU64,
     pub releasing: AtomicBool,
+    pub release_start_bits: AtomicU64,
 }
 
 impl PadVoice {
     pub fn new() -> Self {
-        Self { sample: ArcSwap::from_pointee(PadSample::empty()), playing: AtomicBool::new(false), frame_bits: AtomicU64::new(0f64.to_bits()), gain: AtomicF32::new(1.0), width: AtomicF32::new(1.0), attack_frames: AtomicU64::new(0), release_frames: AtomicU64::new(0), releasing: AtomicBool::new(false) }
+        Self { sample: ArcSwap::from_pointee(PadSample::empty()), playing: AtomicBool::new(false), frame_bits: AtomicU64::new(0f64.to_bits()), gain: AtomicF32::new(1.0), width: AtomicF32::new(1.0), attack_frames: AtomicU64::new(0), release_frames: AtomicU64::new(0), releasing: AtomicBool::new(false), release_start_bits: AtomicU64::new(0f64.to_bits()) }
     }
     pub fn trigger(&self) { self.frame_bits.store(0f64.to_bits(), Ordering::Release); self.releasing.store(false, Ordering::Release); self.playing.store(true, Ordering::Release); }
-    pub fn release(&self) { self.releasing.store(true, Ordering::Release); }
+    pub fn release(&self) { self.release_start_bits.store(self.position().to_bits(), Ordering::Release); self.releasing.store(true, Ordering::Release); }
     pub fn stop(&self) { self.playing.store(false, Ordering::Release); }
     pub fn position(&self) -> f64 { f64::from_bits(self.frame_bits.load(Ordering::Relaxed)) }
     pub fn set_position(&self, value: f64) { self.frame_bits.store(value.to_bits(), Ordering::Relaxed); }
@@ -61,9 +62,10 @@ pub fn render_pad(voice: &PadVoice) -> (f32, f32) {
     let attack_env = if attack > 0 { (frame_pos as f32 / attack as f32).clamp(0.0, 1.0) } else { 1.0 };
     let release_env = if voice.releasing.load(Ordering::Acquire) {
         if release == 0 { voice.stop(); return (0.0, 0.0); }
-        let remaining = frames.saturating_sub(frame_pos);
-        let env = (remaining as f32 / release as f32).clamp(0.0, 1.0);
-        if env <= 0.0001 { voice.stop(); }
+        let release_start = f64::from_bits(voice.release_start_bits.load(Ordering::Relaxed));
+        let elapsed = (pos - release_start).max(0.0) as u64;
+        let env = 1.0 - (elapsed as f32 / release as f32).clamp(0.0, 1.0);
+        if elapsed >= release { voice.stop(); }
         env
     } else { 1.0 };
     let gain = voice.gain.load() * attack_env * release_env;
