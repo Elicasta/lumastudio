@@ -25,8 +25,9 @@ import { demoSetlist, goodness } from "../domain/demo";
 import { createProject } from "../domain/project";
 import { openProject, saveProject } from "../services/projectStore";
 import { chooseLocalVideo, createYouTubeClip } from "../services/video";
-import type { VideoClip, VideoProgram } from "../domain/video";
+import type { VideoClip, VideoProgram, VideoProgramState } from "../domain/video";
 import { VideoProgram as VideoProgramRenderer } from "../components/VideoProgram";
+import { fullscreenVideoOutput, openVideoOutput } from "../services/videoOutput";
 import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import {
@@ -705,6 +706,11 @@ function VideoEditor({ program, sections, positionSeconds, playing, sectionId, o
         <label><span>Loop</span><input type="checkbox" checked={selected.loop} onChange={(e)=>updateClip(selected.id,{loop:e.currentTarget.checked})}/></label>
         <button onClick={()=>{onChange({...value,clips:value.clips.filter((clip)=>clip.id!==selected.id)});setSelectedId(null);}}>Remove Clip</button>
       </div>}
+    </div>
+    <div className="panel video-program-controls">
+      {(["live","black","clear","freeze"] as VideoProgramState[]).map((state) => <button key={state} className={(value.state ?? "live") === state ? "active" : ""} onClick={() => onChange({...value,state})}>{state.toUpperCase()}</button>)}
+      <button onClick={() => void openVideoOutput()}>Open Output</button>
+      <button onClick={() => void fullscreenVideoOutput(true)}>Fullscreen</button>
     </div>
     <div className="panel video-output"><h2>Program Output</h2>
       <label><input type="checkbox" checked={value.output.displayEnabled} onChange={(e)=>onChange({...value,output:{...value.output,displayEnabled:e.currentTarget.checked}})}/> External Display</label>
