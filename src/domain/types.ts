@@ -94,8 +94,20 @@ export interface Setlist {
   songs: Song[];
 }
 
+export type Workspace = "import" | "build" | "show" | "live";
+
+export type BuildTool =
+  | "arrangement"
+  | "mixer"
+  | "pads"
+  | "lighting"
+  | "midi"
+  | "video";
+
+export type ShowTool = "setlist" | "connections" | "settings";
+
 export type Page =
-  | "setlist"
+  | Workspace
   | "songs"
   | "arrangement"
   | "performance"
