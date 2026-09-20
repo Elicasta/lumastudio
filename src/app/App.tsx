@@ -2015,10 +2015,14 @@ function Lighting({ song }: { song: Song }) {
 
 function Connections({
   audio,
-  remote
+  remote,
+  song,
+  onSongChange
 }: {
   audio: AudioEngineController;
   remote: ReturnType<typeof useRemoteRelay>;
+  song: Song;
+  onSongChange: (song: Song) => void;
 }) {
   const cards = [
     [
@@ -2088,6 +2092,52 @@ function Connections({
       </div>
 
       {remote.error && <div className="audio-error panel">{remote.error}</div>}
+
+      <div className="panel guide-pack-card">
+        <div>
+          <small>GUIDE VOICE</small>
+          <h2>{audio.status.voicePack?.name ?? "No Voice Pack Loaded"}</h2>
+          <p>
+            {audio.status.voicePack
+              ? audio.status.voicePack.voice +
+                " · " +
+                audio.status.voicePack.locale +
+                " · " +
+                audio.status.voicePack.assetCount +
+                " reusable tokens"
+              : "Load a 44-token LumaRig voice pack. The same pack works across every Song and Setlist."}
+          </p>
+        </div>
+
+        <div className="guide-pack-status">
+          <span className={audio.status.voicePack ? "ready" : "muted"}>
+            {audio.status.voicePack ? "Ready" : "Not Loaded"}
+          </span>
+          <span>
+            Song Pack: {song.guideVoice.voicePackId}
+          </span>
+        </div>
+
+        <button
+          className="primary"
+          disabled={audio.busy}
+          onClick={() => {
+            void (async () => {
+              const pack = await audio.chooseAndLoadVoicePack();
+              if (!pack) return;
+              onSongChange({
+                ...song,
+                guideVoice: {
+                  ...song.guideVoice,
+                  voicePackId: pack.id
+                }
+              });
+            })();
+          }}
+        >
+          {audio.status.voicePack ? "Load Different Pack" : "Load Voice Pack"}
+        </button>
+      </div>
 
       <div className="connection-grid">
         {cards.map(([title, value, detail], index) => (
