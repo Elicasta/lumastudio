@@ -1956,6 +1956,12 @@ function Mixer({
   const audioTracks = song.tracks.filter(
     (track) => !["lighting", "video", "midi"].includes(track.kind)
   );
+  const buses = [
+    ["music", "Music", audio.status.musicBus],
+    ["click", "Click", audio.status.clickBus],
+    ["guide", "Guide", audio.status.guideBus],
+    ["master", "Master", audio.status.masterBus]
+  ] as const;
 
   return (
     <section>
@@ -2046,6 +2052,43 @@ function Mixer({
             </div>
           );
         })}
+      </div>
+
+      <div className="bus-mixer panel">
+        <div className="bus-mixer-title">
+          <div>
+            <small>OUTPUT BUSES</small>
+            <strong>Music · Click · Guide · Master</strong>
+          </div>
+          <span>
+            Click and Guide are independent logical buses. Hardware output assignment comes next.
+          </span>
+        </div>
+
+        {buses.map(([id, label, bus]) => (
+          <div className="bus-channel" key={id}>
+            <strong>{label}</strong>
+            <span>{(bus?.gainDb ?? 0).toFixed(1)} dB</span>
+            <input
+              type="range"
+              min="-60"
+              max="12"
+              step="0.5"
+              value={bus?.gainDb ?? 0}
+              disabled={!audio.status.initialized}
+              onChange={(event) =>
+                void audio.setBusGain(id, Number(event.currentTarget.value))
+              }
+            />
+            <button
+              className={bus?.muted ? "channel-toggle active danger" : "channel-toggle"}
+              disabled={!audio.status.initialized}
+              onClick={() => void audio.setBusMuted(id, !bus?.muted)}
+            >
+              {bus?.muted ? "MUTED" : "MUTE"}
+            </button>
+          </div>
+        ))}
       </div>
     </section>
   );
