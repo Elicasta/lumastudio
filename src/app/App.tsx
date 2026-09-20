@@ -24,6 +24,8 @@ import {
 import { demoSetlist, goodness } from "../domain/demo";
 import { createProject } from "../domain/project";
 import { openProject, saveProject } from "../services/projectStore";
+import { chooseLocalVideo, createYouTubeClip, localVideoUrl, youtubeEmbedUrl } from "../services/video";
+import type { VideoClip, VideoProgram } from "../domain/video";
 import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import {
@@ -553,7 +555,7 @@ export function App() {
               {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
               {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
               {buildTool === "midi" && <UnavailableFeature title="MIDI" text="Native MIDI routing is being wired into the v0.3 runtime." />}
-              {buildTool === "video" && <UnavailableFeature title="Video / NDI" text="Video compositor, display output and NDI sender are being wired into the v0.3 runtime." />}
+              {buildTool === "video" && <VideoEditor program={project.video} sections={selectedSong.sections} onChange={(video) => setProject((current) => ({ ...current, video, updatedAt: new Date().toISOString() }))} />}
             </>
           )}
 
@@ -663,6 +665,55 @@ function ToolRail<T extends string>({
       ))}
     </div>
   );
+}
+
+function VideoEditor({ program, sections, onChange }: { program?: VideoProgram; sections: Song["sections"]; onChange: (program: VideoProgram) => void }) {
+  const value: VideoProgram = program ?? { clips: [], output: { displayEnabled: false, ndiEnabled: false, ndiName: "LumaRig Studio Program" } };
+  const [selectedId, setSelectedId] = useState<string | null>(value.clips[0]?.id ?? null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [error, setError] = useState("");
+  const selected = value.clips.find((clip) => clip.id === selectedId) ?? value.clips[0];
+
+  function updateClip(id: string, patch: Partial<VideoClip>) {
+    onChange({ ...value, clips: value.clips.map((clip) => clip.id === id ? { ...clip, ...patch } : clip) });
+  }
+  async function addLocal() {
+    try { setError(""); const clip = await chooseLocalVideo(); if (!clip) return; onChange({ ...value, clips: [...value.clips, clip] }); setSelectedId(clip.id); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }
+  function addYouTube() {
+    try { setError(""); const clip = createYouTubeClip(youtubeUrl); onChange({ ...value, clips: [...value.clips, clip] }); setSelectedId(clip.id); setYoutubeUrl(""); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }
+
+  return <section className="video-editor">
+    <div className="page-head"><div><h1>Video / NDI</h1><p>Timeline video, section cues and program output</p></div><button className="primary" onClick={() => void addLocal()}>Add MP4 / MOV</button></div>
+    {error && <div className="error-banner">{error}</div>}
+    <div className="panel video-source-add"><input value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.currentTarget.value)} placeholder="Paste YouTube link" /><button onClick={addYouTube}>Add YouTube</button></div>
+    <div className="video-editor-grid">
+      <div className="panel video-library"><h2>Clips</h2>{value.clips.length === 0 && <p>No video clips yet.</p>}{value.clips.map((clip) => <button key={clip.id} className={clip.id === selected?.id ? "active" : ""} onClick={() => setSelectedId(clip.id)}><strong>{clip.name}</strong><span>{clip.source.kind === "local" ? clip.source.format.toUpperCase() : "YouTube"} · {clip.sourceInSeconds.toFixed(1)}s → {clip.sourceOutSeconds?.toFixed(1) ?? "end"}</span></button>)}</div>
+      <div className="panel video-preview">
+        {selected ? selected.source.kind === "local"
+          ? <video key={selected.id} src={localVideoUrl(selected.source.path)} controls muted />
+          : <iframe key={selected.id + selected.sourceInSeconds + selected.sourceOutSeconds} src={youtubeEmbedUrl(selected.source.videoId, selected.sourceInSeconds, selected.sourceOutSeconds)} allow="autoplay; encrypted-media; picture-in-picture" title={selected.name} />
+          : <div className="video-empty">Add an MP4, MOV, or YouTube source.</div>}
+      </div>
+      {selected && <div className="panel video-inspector"><h2>Clip Editor</h2>
+        <label><span>Name</span><input value={selected.name} onChange={(e) => updateClip(selected.id,{name:e.currentTarget.value})}/></label>
+        <label><span>Timeline Start</span><input type="number" min="0" step="0.1" value={selected.timelineStartSeconds} onChange={(e)=>updateClip(selected.id,{timelineStartSeconds:Number(e.currentTarget.value)})}/></label>
+        <label><span>Source In</span><input type="number" min="0" step="0.1" value={selected.sourceInSeconds} onChange={(e)=>updateClip(selected.id,{sourceInSeconds:Number(e.currentTarget.value)})}/></label>
+        <label><span>Source Out</span><input type="number" min="0" step="0.1" value={selected.sourceOutSeconds ?? ""} placeholder="End" onChange={(e)=>updateClip(selected.id,{sourceOutSeconds:e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value)})}/></label>
+        <label><span>Section</span><select value={selected.sectionId ?? ""} onChange={(e)=>updateClip(selected.id,{sectionId:e.currentTarget.value || undefined,playbackMode:e.currentTarget.value ? "section":"timeline"})}><option value="">Timeline</option>{sections.map((section)=><option key={section.id} value={section.id}>{section.name}</option>)}</select></label>
+        <label><span>Loop</span><input type="checkbox" checked={selected.loop} onChange={(e)=>updateClip(selected.id,{loop:e.currentTarget.checked})}/></label>
+        <button onClick={()=>{onChange({...value,clips:value.clips.filter((clip)=>clip.id!==selected.id)});setSelectedId(null);}}>Remove Clip</button>
+      </div>}
+    </div>
+    <div className="panel video-output"><h2>Program Output</h2>
+      <label><input type="checkbox" checked={value.output.displayEnabled} onChange={(e)=>onChange({...value,output:{...value.output,displayEnabled:e.currentTarget.checked}})}/> External Display</label>
+      <label><input type="checkbox" checked={value.output.ndiEnabled} onChange={(e)=>onChange({...value,output:{...value.output,ndiEnabled:e.currentTarget.checked}})}/> NDI</label>
+      <input value={value.output.ndiName} onChange={(e)=>onChange({...value,output:{...value.output,ndiName:e.currentTarget.value}})} aria-label="NDI source name"/>
+    </div>
+  </section>;
 }
 
 function UnavailableFeature({ title, text }: { title: string; text: string }) {
