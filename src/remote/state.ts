@@ -113,6 +113,8 @@ export function buildRemoteStudioState({
       countInActive: Boolean(audioStatus.countInActive),
       countInBeat: audioStatus.countInBeat ?? 0,
       countInTotal: audioStatus.countInTotal ?? 0,
+      countInBar: audioStatus.countInBar ?? 0,
+      countInBars: audioStatus.countInBars ?? 0,
       queuedSectionId:
         queuedSectionIndex !== null
           ? song.sections[queuedSectionIndex]?.id ?? null
