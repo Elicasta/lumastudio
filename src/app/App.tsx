@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useMemo, useState, type CSSProperties } from "react";
 import {
   Activity,
   AudioLines,
@@ -23,6 +23,10 @@ import {
 } from "lucide-react";
 import { demoSetlist, goodness } from "../domain/demo";
 import type { ImportStep, Page, Song } from "../domain/types";
+import { adjacentSong } from "../domain/setlist";
+import { useRemoteRelay } from "../hooks/useRemoteRelay";
+import type { RemoteCommandEnvelope } from "../remote/protocol";
+import { buildRemoteStudioState } from "../remote/state";
 import { checkForAppUpdate } from "../services/updater";
 import { useAudioEngine, type AudioEngineController } from "../hooks/useAudioEngine";
 import type { NativeAudioStatus, NativeAudioTrack } from "../services/audio";
@@ -53,6 +57,180 @@ export function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [currentSection, setCurrentSection] = useState(4);
   const audio = useAudioEngine();
+
+  const selectSetlistSong = useCallback(
+    async (song: Song) => {
+      if (audio.hasLoadedAudio) {
+        await audio.stop();
+      }
+      setPreviewPlaying(false);
+      setSelectedSong(song);
+      setCurrentSection(0);
+    },
+    [audio.hasLoadedAudio, audio.stop]
+  );
+
+  const handleRemoteCommand = useCallback(
+    async (message: RemoteCommandEnvelope) => {
+      const ok = () => ({ id: message.id, ok: true });
+      const reject = (error: string) => ({ id: message.id, ok: false, error });
+
+      switch (message.command) {
+        case "transport.play":
+          if (audio.hasLoadedAudio) {
+            if (!audio.status.playing) await audio.playPause();
+          } else {
+            setPreviewPlaying(true);
+          }
+          return ok();
+
+        case "transport.pause":
+          if (audio.hasLoadedAudio) {
+            if (audio.status.playing) await audio.playPause();
+          } else {
+            setPreviewPlaying(false);
+          }
+          return ok();
+
+        case "transport.stop":
+          if (audio.hasLoadedAudio) await audio.stop();
+          setPreviewPlaying(false);
+          return ok();
+
+        case "transport.go":
+        case "transport.next":
+          setCurrentSection((index) =>
+            Math.min(selectedSong.sections.length - 1, index + 1)
+          );
+          return ok();
+
+        case "transport.previous":
+          setCurrentSection((index) => Math.max(0, index - 1));
+          return ok();
+
+        case "section.launch": {
+          const id = String(message.payload?.id ?? "");
+          const index = selectedSong.sections.findIndex((section) => section.id === id);
+          if (index < 0) return reject("Section not found in the current Song.");
+          setCurrentSection(index);
+          return ok();
+        }
+
+        case "song.next":
+        case "song.previous": {
+          const direction = message.command === "song.next" ? 1 : -1;
+          const song = adjacentSong(
+            demoSetlist,
+            selectedSong.id,
+            direction as -1 | 1
+          );
+          if (!song) {
+            return reject(
+              direction === 1 ? "End of Setlist." : "Start of Setlist."
+            );
+          }
+          await selectSetlistSong(song);
+          return ok();
+        }
+
+        case "song.select": {
+          const id = String(message.payload?.id ?? "");
+          const song = demoSetlist.songs.find((item) => item.id === id);
+          if (!song) return reject("Song not found in the active Setlist.");
+          await selectSetlistSong(song);
+          return ok();
+        }
+
+        case "mixer.gain": {
+          const id = String(message.payload?.id ?? "");
+          const gainDb = Number(message.payload?.gainDb);
+          if (!Number.isFinite(gainDb)) return reject("Invalid gain value.");
+
+          setSelectedSong((song) => ({
+            ...song,
+            tracks: song.tracks.map((track) =>
+              track.id === id ? { ...track, gainDb } : track
+            )
+          }));
+
+          if (audio.tracks.some((track) => track.id === id)) {
+            await audio.setTrackGain(id, gainDb);
+          }
+          return ok();
+        }
+
+        case "mixer.mute": {
+          const id = String(message.payload?.id ?? "");
+          const muted = Boolean(message.payload?.muted);
+
+          setSelectedSong((song) => ({
+            ...song,
+            tracks: song.tracks.map((track) =>
+              track.id === id ? { ...track, muted } : track
+            )
+          }));
+
+          if (audio.tracks.some((track) => track.id === id)) {
+            await audio.setTrackMuted(id, muted);
+          }
+          return ok();
+        }
+
+        case "mixer.solo": {
+          const id = String(message.payload?.id ?? "");
+          const solo = Boolean(message.payload?.solo);
+
+          setSelectedSong((song) => ({
+            ...song,
+            tracks: song.tracks.map((track) =>
+              track.id === id ? { ...track, solo } : track
+            )
+          }));
+
+          if (audio.tracks.some((track) => track.id === id)) {
+            await audio.setTrackSolo(id, solo);
+          }
+          return ok();
+        }
+
+        case "pad.trigger":
+        case "pad.release":
+          return reject("Pad audio runtime is not wired yet.");
+
+        case "lighting.blackout":
+        case "lighting.scene":
+        case "lighting.xy":
+          return reject("Lighting runtime is not wired yet.");
+      }
+    },
+    [
+      audio.hasLoadedAudio,
+      audio.playPause,
+      audio.setTrackGain,
+      audio.setTrackMuted,
+      audio.setTrackSolo,
+      audio.status.playing,
+      audio.stop,
+      audio.tracks,
+      selectSetlistSong,
+      selectedSong.id,
+      selectedSong.sections
+    ]
+  );
+
+  const remoteState = useMemo(
+    () =>
+      buildRemoteStudioState({
+        setlist: demoSetlist,
+        song: selectedSong,
+        currentSectionIndex: currentSection,
+        previewPlaying,
+        audioStatus: audio.status
+      }),
+    [audio.status, currentSection, previewPlaying, selectedSong]
+  );
+
+  const remote = useRemoteRelay(remoteState, handleRemoteCommand);
 
   function applyNativeTracks(
     tracks: NativeAudioTrack[],
@@ -90,13 +268,14 @@ export function App() {
           previewPlaying={previewPlaying}
           onPreviewPlaying={setPreviewPlaying}
           audio={audio}
+          remoteOnline={remote.status === "online"}
         />
         <div className="workspace">
           {page === "setlist" && (
             <SetlistPage
               selected={selectedSong}
               audio={audio}
-              onSelect={setSelectedSong}
+              onSelect={(song) => void selectSetlistSong(song)}
               onOpenArrangement={() => setPage("arrangement")}
               onImport={() => setImportOpen(true)}
             />
@@ -104,7 +283,7 @@ export function App() {
           {page === "songs" && (
             <SongsPage
               selected={selectedSong}
-              onSelect={setSelectedSong}
+              onSelect={(song) => void selectSetlistSong(song)}
               onOpenArrangement={() => setPage("arrangement")}
               onImport={() => setImportOpen(true)}
             />
@@ -115,6 +294,8 @@ export function App() {
               song={selectedSong}
               current={currentSection}
               onCurrent={setCurrentSection}
+              nextSong={adjacentSong(demoSetlist, selectedSong.id, 1)}
+              onNextSong={(song) => void selectSetlistSong(song)}
             />
           )}
           {page === "pads" && <Pads />}
@@ -143,7 +324,7 @@ export function App() {
               }}
             />
           )}
-          {page === "connections" && <Connections audio={audio} />}
+          {page === "connections" && <Connections audio={audio} remote={remote} />}
           {page === "settings" && <SettingsPage audio={audio} />}
         </div>
       </main>
@@ -205,12 +386,14 @@ function Transport({
   song,
   previewPlaying,
   onPreviewPlaying,
-  audio
+  audio,
+  remoteOnline
 }: {
   song: Song;
   previewPlaying: boolean;
   onPreviewPlaying: (value: boolean) => void;
   audio: AudioEngineController;
+  remoteOnline: boolean;
 }) {
   const playing = audio.hasLoadedAudio
     ? Boolean(audio.status.playing)
@@ -256,7 +439,7 @@ function Transport({
         ok={!audio.status.deviceError}
       />
       <Status label="LumaRig" />
-      <Status label="Remote" />
+      <Status label="Remote" ok={remoteOnline} />
       <Gauge size={17} className="muted" />
       <span className="cpu">
         {audio.hasLoadedAudio
@@ -304,6 +487,8 @@ function SetlistPage({
   const playProgress = audio.hasLoadedAudio && (audio.status.durationSeconds ?? 0) > 0
     ? Math.min(100, ((audio.status.positionSeconds ?? 0) / (audio.status.durationSeconds ?? 1)) * 100)
     : 29;
+  const previousSong = adjacentSong(demoSetlist, selected.id, -1);
+  const nextSong = adjacentSong(demoSetlist, selected.id, 1);
 
   return (
     <section className="studio-dashboard">
@@ -371,16 +556,28 @@ function SetlistPage({
             </small>
           </div>
           <div className="now-controls">
-            <button><ChevronLeft size={18} /></button>
+            <button
+              disabled={!previousSong}
+              onClick={() => previousSong && onSelect(previousSong)}
+              aria-label="Previous song"
+            >
+              <ChevronLeft size={18} />
+            </button>
             <button className="play-square" onClick={() => void audio.playPause()} disabled={!audio.hasLoadedAudio}>
               <Play size={19} fill="currentColor" />
             </button>
-            <button><ChevronRight size={18} /></button>
+            <button
+              disabled={!nextSong}
+              onClick={() => nextSong && onSelect(nextSong)}
+              aria-label="Next song"
+            >
+              <ChevronRight size={18} />
+            </button>
           </div>
           <div className="next-song-card">
             <small>NEXT SONG</small>
-            <strong>{demoSetlist.songs[(demoSetlist.songs.findIndex((song) => song.id === selected.id) + 1) % demoSetlist.songs.length].title}</strong>
-            <span>{demoSetlist.songs[(demoSetlist.songs.findIndex((song) => song.id === selected.id) + 1) % demoSetlist.songs.length].bpm} BPM</span>
+            <strong>{nextSong?.title ?? "End of Set"}</strong>
+            <span>{nextSong ? nextSong.bpm + " BPM" : "No song queued"}</span>
           </div>
         </div>
 
@@ -755,11 +952,15 @@ function VideoLane() {
 function Performance({
   song,
   current,
-  onCurrent
+  onCurrent,
+  nextSong,
+  onNextSong
 }: {
   song: Song;
   current: number;
   onCurrent: (value: number) => void;
+  nextSong: Song | null;
+  onNextSong: (song: Song) => void;
 }) {
   const active = song.sections[Math.min(current, song.sections.length - 1)];
   const next = song.sections[Math.min(current + 1, song.sections.length - 1)];
@@ -797,22 +998,22 @@ function Performance({
           <div className="hero-progress"><span style={{ width: "42%" }} /></div>
         </div>
         <div className="next-cue panel">
-          <small>UP NEXT</small>
+          <small>NEXT SECTION</small>
           <h3>{next.name}</h3>
           <p>{next.lengthBars} bars</p>
         </div>
         <div className="live-status panel">
           <h3>Live Status</h3>
           <Status label="Audio Engine" />
-          <Status label="MIDI Clock" />
-          <Status label="LumaRig Lighting" />
+          <Status label="MIDI Clock" ok={false} />
+          <Status label="LumaRig Lighting" ok={false} />
           <Status label="Remote" />
         </div>
       </div>
 
       <div className="go-row">
         <button onClick={() => onCurrent(Math.max(0, current - 1))}>
-          <ChevronLeft /> Previous
+          <ChevronLeft /> Previous Section
         </button>
         <button
           className="go"
@@ -823,7 +1024,22 @@ function Performance({
         <button
           onClick={() => onCurrent(Math.min(song.sections.length - 1, current + 1))}
         >
-          Next <ChevronRight />
+          Next Section <ChevronRight />
+        </button>
+      </div>
+
+      <div className="song-advance panel">
+        <div>
+          <small>NEXT SONG</small>
+          <strong>{nextSong?.title ?? "End of Set"}</strong>
+          <span>{nextSong ? nextSong.artist + " · " + nextSong.bpm + " BPM · " + nextSong.key : "No song queued after this one"}</span>
+        </div>
+        <button
+          className="next-song-control"
+          disabled={!nextSong}
+          onClick={() => nextSong && onNextSong(nextSong)}
+        >
+          NEXT SONG <ChevronRight size={18} />
         </button>
       </div>
     </section>
@@ -1194,7 +1410,13 @@ function Lighting({ song }: { song: Song }) {
   );
 }
 
-function Connections({ audio }: { audio: AudioEngineController }) {
+function Connections({
+  audio,
+  remote
+}: {
+  audio: AudioEngineController;
+  remote: ReturnType<typeof useRemoteRelay>;
+}) {
   const cards = [
     [
       "Audio I/O",
@@ -1205,10 +1427,17 @@ function Connections({ audio }: { audio: AudioEngineController }) {
     ],
     ["MIDI", "LumaRig MIDI (Virtual)", "Clock + Start/Stop"],
     ["Clock Sync", "Internal (LumaRig)", "Song tempo"],
-    ["Lighting", "LumaRig / Art-Net", "Platform adapter ready"],
-    ["Remote Devices", "iPad + iPhone", "Pairing planned"],
-    ["Network", "lumastudio.local", "OSC / remote transport"]
+    ["Lighting", "LumaRig / Art-Net", "Runtime comes in Phase 4"],
+    ["Network", "Supabase Realtime", "Studio owns the remote relay session"]
   ];
+
+  const pairCode = remote.session?.pairCode ?? "------";
+  const pairExpires = remote.session
+    ? new Date(remote.session.pairExpiresAt).toLocaleTimeString([], {
+        hour: "numeric",
+        minute: "2-digit"
+      })
+    : null;
 
   return (
     <section>
@@ -1217,10 +1446,38 @@ function Connections({ audio }: { audio: AudioEngineController }) {
           <h1>Connections</h1>
           <p>Audio, MIDI, lighting, network and remote integrations</p>
         </div>
-        <span className="ready">
-          <span className="dot ok" /> Core Systems Ready
+        <span className={remote.status === "online" ? "ready" : "muted"}>
+          <span className={remote.status === "online" ? "dot ok" : "dot bad"} />
+          Remote {remote.status}
         </span>
       </div>
+
+      <div className="panel remote-pairing-card">
+        <div>
+          <small>REMOTE CONTROL</small>
+          <h2>Pair iPad or iPhone</h2>
+          <p>
+            LumaRig Studio creates and owns this session. The remote only joins
+            the session after you enter the pairing code.
+          </p>
+        </div>
+
+        <div className="pair-code-block">
+          <span>PAIR CODE</span>
+          <strong>{pairCode}</strong>
+          <small>{pairExpires ? "Valid until " + pairExpires : "Creating secure session…"}</small>
+        </div>
+
+        <div className="remote-pair-actions">
+          <span className={remote.status === "online" ? "ready" : "muted"}>
+            {remote.status === "online" ? "Supabase Realtime online" : "Relay " + remote.status}
+          </span>
+          <button onClick={() => void remote.restart()}>New Pair Code</button>
+        </div>
+      </div>
+
+      {remote.error && <div className="audio-error panel">{remote.error}</div>}
+
       <div className="connection-grid">
         {cards.map(([title, value, detail], index) => (
           <div className="panel connection-card" key={title}>
@@ -1229,7 +1486,7 @@ function Connections({ audio }: { audio: AudioEngineController }) {
               <span className={index === 0 && !audio.status.initialized ? "muted" : "ready"}>
                 {index === 0
                   ? audio.status.initialized ? "Connected" : "Idle"
-                  : index < 4 ? "Configured" : "Planned"}
+                  : index < 3 ? "Configured" : "Planned"}
               </span>
             </div>
             <strong>{value}</strong>
