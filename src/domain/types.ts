@@ -53,6 +53,7 @@ export interface Song {
   key: string;
   meter: [number, number];
   durationSeconds: number;
+  downbeatSeconds?: number;
   status: "ready" | "needs-review" | "processing";
   countIn: CountInSettings;
   manualJumpCountIn: CountInSettings;
