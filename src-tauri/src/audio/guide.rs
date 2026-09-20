@@ -286,6 +286,7 @@ impl GuideRenderer {
         if self.transition_revision != transition.revision {
             self.transition_revision = transition.revision;
             self.transition_index = 0;
+            self.active.clear();
         }
 
         if !transition_active {
