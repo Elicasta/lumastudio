@@ -25,7 +25,7 @@ export interface ManualJumpPlan {
 
 export function sectionStartSeconds(song: Song, sectionIndex: number): number {
   const safeIndex = Math.max(0, Math.min(song.sections.length - 1, sectionIndex));
-  let seconds = 0;
+  let seconds = Math.max(0, song.downbeatSeconds ?? 0);
 
   for (let index = 0; index < safeIndex; index += 1) {
     const section = song.sections[index];
@@ -86,6 +86,7 @@ export function planSongCountIn(song: Song): {
   countBeats: number;
   beatSeconds: number;
   launchAfterSeconds: number;
+  targetSeconds: number;
 } {
   const settings = song.countIn;
   const beatSeconds = secondsPerBeat(song.bpm, song.meter);
@@ -94,7 +95,8 @@ export function planSongCountIn(song: Song): {
   return {
     countBeats,
     beatSeconds,
-    launchAfterSeconds: countBeats * beatSeconds
+    launchAfterSeconds: countBeats * beatSeconds,
+    targetSeconds: Math.max(0, song.downbeatSeconds ?? 0)
   };
 }
 
