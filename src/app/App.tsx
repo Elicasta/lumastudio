@@ -296,6 +296,8 @@ export function App() {
               onCurrent={setCurrentSection}
               nextSong={adjacentSong(demoSetlist, selectedSong.id, 1)}
               onNextSong={(song) => void selectSetlistSong(song)}
+              remoteOnline={remote.status === "online"}
+              remoteClients={remote.remoteClients}
             />
           )}
           {page === "pads" && <Pads />}
@@ -954,13 +956,17 @@ function Performance({
   current,
   onCurrent,
   nextSong,
-  onNextSong
+  onNextSong,
+  remoteOnline,
+  remoteClients
 }: {
   song: Song;
   current: number;
   onCurrent: (value: number) => void;
   nextSong: Song | null;
   onNextSong: (song: Song) => void;
+  remoteOnline: boolean;
+  remoteClients: number;
 }) {
   const active = song.sections[Math.min(current, song.sections.length - 1)];
   const next = song.sections[Math.min(current + 1, song.sections.length - 1)];
@@ -1007,7 +1013,14 @@ function Performance({
           <Status label="Audio Engine" />
           <Status label="MIDI Clock" ok={false} />
           <Status label="LumaRig Lighting" ok={false} />
-          <Status label="Remote" />
+          <Status
+            label={
+              remoteClients > 0
+                ? "Remote · " + remoteClients + " connected"
+                : "Remote"
+            }
+            ok={remoteOnline}
+          />
         </div>
       </div>
 
@@ -1470,7 +1483,11 @@ function Connections({
 
         <div className="remote-pair-actions">
           <span className={remote.status === "online" ? "ready" : "muted"}>
-            {remote.status === "online" ? "Supabase Realtime online" : "Relay " + remote.status}
+            {remote.status === "online"
+              ? remote.remoteClients > 0
+                ? remote.remoteClients + (remote.remoteClients === 1 ? " remote connected" : " remotes connected")
+                : "Ready for remote"
+              : "Relay " + remote.status}
           </span>
           <button onClick={() => void remote.rotatePairCode()}>New Pair Code</button>
         </div>
@@ -1483,10 +1500,24 @@ function Connections({
           <div className="panel connection-card" key={title}>
             <div className="card-head">
               <h3>{title}</h3>
-              <span className={index === 0 && !audio.status.initialized ? "muted" : "ready"}>
-                {index === 0
+              <span
+                className={
+                  title === "Audio I/O" && !audio.status.initialized
+                    ? "muted"
+                    : title === "Network" && remote.status !== "online"
+                      ? "muted"
+                      : title === "MIDI" || title === "Lighting"
+                        ? "muted"
+                        : "ready"
+                }
+              >
+                {title === "Audio I/O"
                   ? audio.status.initialized ? "Connected" : "Idle"
-                  : index < 3 ? "Configured" : "Planned"}
+                  : title === "Network"
+                    ? remote.status === "online" ? "Online" : "Offline"
+                    : title === "MIDI" || title === "Lighting"
+                      ? "Planned"
+                      : "Configured"}
               </span>
             </div>
             <strong>{value}</strong>
