@@ -148,6 +148,7 @@ pub fn audio_schedule_transition(
     first_count_delay_seconds: f64,
     beat_seconds: f64,
     count_beats: u64,
+    click_enabled: bool,
     keep_audio: bool,
     guide_events: Vec<GuideTransitionEventRequest>,
     service: State<'_, AudioService>,
@@ -159,6 +160,7 @@ pub fn audio_schedule_transition(
             first_count_delay_seconds,
             beat_seconds,
             count_beats,
+            click_enabled,
             keep_audio,
             guide_events,
         )
