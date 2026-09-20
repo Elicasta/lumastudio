@@ -559,7 +559,8 @@ where
     }
 
     let mix = realtime.mix.load();
-    if mix.duration_frames == 0 {
+    let pads_active = realtime.pads.iter().any(|voice| voice.playing.load(Ordering::Acquire));
+    if mix.duration_frames == 0 && !pads_active {
         realtime.transition.cancel();
         realtime.transport.pause();
         realtime.meter.store_peaks(0.0, 0.0);
@@ -585,7 +586,7 @@ where
         transition_active,
     );
 
-    if !playing && !transition_active {
+    if !playing && !transition_active && !pads_active {
         realtime.meter.store_peaks(0.0, 0.0);
         guide_renderer.clear();
         return;
