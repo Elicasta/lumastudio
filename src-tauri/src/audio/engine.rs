@@ -109,6 +109,7 @@ pub struct AudioEngineStatus {
     pub click_bus: AudioBusStatus,
     pub guide_bus: AudioBusStatus,
     pub master_bus: AudioBusStatus,
+    pub pad_bus: AudioBusStatus,
 }
 
 impl AudioEngine {
