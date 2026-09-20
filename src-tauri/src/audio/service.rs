@@ -223,6 +223,18 @@ impl AudioService {
         })?
     }
 
+    pub fn set_bus_route(
+        &self,
+        id: &str,
+        output_left: u16,
+        output_right: u16,
+    ) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.set_bus_route(id, output_left, output_right)?;
+            Ok(engine.status())
+        })?
+    }
+
     pub fn set_loop(&self, start_seconds: f64, end_seconds: f64) -> Result<(), AudioError> {
         self.with_engine(|engine| engine.set_loop_seconds(start_seconds, end_seconds))
     }
