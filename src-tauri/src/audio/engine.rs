@@ -1,6 +1,6 @@
 use std::{
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc,
     },
 };
@@ -13,7 +13,13 @@ use cpal::{
 use serde::Serialize;
 
 use super::{
+    bus::BusControl,
     error::AudioError,
+    guide::{
+        prepare_timeline, prepare_transition, GuideRenderer, GuideSchedule,
+        GuideTimelineEventRequest, GuideTransitionEventRequest, VoicePack,
+        VoicePackInfo,
+    },
     meter::StereoMeter,
     model::SongMix,
     transition::ScheduledTransition,
@@ -25,6 +31,14 @@ pub struct RealtimeState {
     pub transport: Transport,
     pub meter: StereoMeter,
     pub transition: ScheduledTransition,
+    pub voice_pack: ArcSwap<VoicePack>,
+    pub guide_timeline: ArcSwap<GuideSchedule>,
+    pub transition_guide: ArcSwap<GuideSchedule>,
+    pub guide_revision: AtomicU64,
+    pub music_bus: BusControl,
+    pub click_bus: BusControl,
+    pub guide_bus: BusControl,
+    pub master_bus: BusControl,
     pub device_error: AtomicBool,
 }
 
@@ -35,6 +49,14 @@ impl RealtimeState {
             transport: Transport::new(),
             meter: StereoMeter::new(),
             transition: ScheduledTransition::new(),
+            voice_pack: ArcSwap::from_pointee(VoicePack::empty()),
+            guide_timeline: ArcSwap::from_pointee(GuideSchedule::empty()),
+            transition_guide: ArcSwap::from_pointee(GuideSchedule::empty()),
+            guide_revision: AtomicU64::new(1),
+            music_bus: BusControl::new(0.0),
+            click_bus: BusControl::new(-6.0),
+            guide_bus: BusControl::new(-3.0),
+            master_bus: BusControl::new(0.0),
             device_error: AtomicBool::new(false),
         }
     }
@@ -46,6 +68,13 @@ pub struct AudioEngine {
     device_name: String,
     sample_rate: u32,
     output_channels: u16,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AudioBusStatus {
+    pub gain_db: f32,
+    pub muted: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -66,6 +95,11 @@ pub struct AudioEngineStatus {
     pub count_in_active: bool,
     pub count_in_beat: u64,
     pub count_in_total: u64,
+    pub voice_pack: Option<VoicePackInfo>,
+    pub music_bus: AudioBusStatus,
+    pub click_bus: AudioBusStatus,
+    pub guide_bus: AudioBusStatus,
+    pub master_bus: AudioBusStatus,
 }
 
 impl AudioEngine {
