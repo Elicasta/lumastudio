@@ -140,6 +140,35 @@ impl AudioService {
         })
     }
 
+    pub fn schedule_transition(
+        &self,
+        target_seconds: f64,
+        delay_seconds: f64,
+        first_count_delay_seconds: f64,
+        beat_seconds: f64,
+        count_beats: u64,
+        keep_audio: bool,
+    ) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.schedule_transition_seconds(
+                target_seconds,
+                delay_seconds,
+                first_count_delay_seconds,
+                beat_seconds,
+                count_beats,
+                keep_audio,
+            );
+            engine.status()
+        })
+    }
+
+    pub fn cancel_transition(&self) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.cancel_transition();
+            engine.status()
+        })
+    }
+
     pub fn set_loop(&self, start_seconds: f64, end_seconds: f64) -> Result<(), AudioError> {
         self.with_engine(|engine| engine.set_loop_seconds(start_seconds, end_seconds))
     }
