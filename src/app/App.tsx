@@ -803,8 +803,8 @@ function SetlistPage({
   const playProgress = audio.hasLoadedAudio && (audio.status.durationSeconds ?? 0) > 0
     ? Math.min(100, ((audio.status.positionSeconds ?? 0) / (audio.status.durationSeconds ?? 1)) * 100)
     : 29;
-  const previousSong = adjacentSong(demoSetlist, selected.id, -1);
-  const nextSong = adjacentSong(demoSetlist, selected.id, 1);
+  const previousSong = adjacentSong(setlist, selected.id, -1);
+  const nextSong = adjacentSong(setlist, selected.id, 1);
   const transportBusy = Boolean(audio.status.transitionActive);
   const transportPlaying = Boolean(audio.status.playing);
 
