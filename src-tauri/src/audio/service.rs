@@ -146,13 +146,14 @@ impl AudioService {
             width: width.clamp(0.0, 2.0),
             playback_rate: 2.0_f32.powi(octave.clamp(-2, 2)),
         })?;
-        engine.configure_pad(index, gain_db, width)?;
+        engine.configure_pad(index, gain_db, width, 10, 1800)?;
         Ok(())
     }
 
     pub fn trigger_pad(&self, index: usize) -> Result<(), AudioError> { self.with_engine(|engine| engine.trigger_pad(index))? }
+    pub fn release_pad(&self, index: usize) -> Result<(), AudioError> { self.with_engine(|engine| engine.release_pad(index))? }
     pub fn stop_pad(&self, index: usize) -> Result<(), AudioError> { self.with_engine(|engine| engine.stop_pad(index))? }
-    pub fn configure_pad(&self, index: usize, gain_db: f32, width: f32) -> Result<(), AudioError> { self.with_engine(|engine| engine.configure_pad(index, gain_db, width))? }
+    pub fn configure_pad(&self, index: usize, gain_db: f32, width: f32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> { self.with_engine(|engine| engine.configure_pad(index, gain_db, width, attack_ms, release_ms))? }
 
     pub fn load_voice_pack(&self, directory: &str) -> Result<AudioEngineStatus, AudioError> {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
