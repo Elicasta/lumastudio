@@ -449,6 +449,7 @@ export function App() {
   );
 
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
+  const lumarig = useLumaRig();
 
   function applyNativeTracks(
     tracks: NativeAudioTrack[],
