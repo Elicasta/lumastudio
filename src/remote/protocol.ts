@@ -41,6 +41,12 @@ export interface RemoteSectionState {
   lengthBars: number;
 }
 
+export interface RemoteCountInSettings {
+  mode: "none" | "beats" | "bars" | "adaptive";
+  value?: number;
+  minBeats?: number;
+}
+
 export interface RemoteSetlistSongState {
   id: string;
   title: string;
@@ -50,6 +56,7 @@ export interface RemoteSetlistSongState {
   meter: [number, number];
   durationSeconds: number;
   status: "ready" | "needs-review" | "processing";
+  countIn: RemoteCountInSettings;
   current: boolean;
 }
 
