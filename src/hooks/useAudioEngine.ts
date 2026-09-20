@@ -25,6 +25,19 @@ import {
 } from "../services/audio";
 
 const VOICE_PACK_PATH_KEY = "lumarig.audio.voice-pack-path";
+const BUS_SETTINGS_KEY = "lumarig.audio.bus-settings";
+
+type RoutableBus = "music" | "click" | "guide";
+type AudioBusId = RoutableBus | "master";
+
+interface SavedBusSetting {
+  gainDb?: number;
+  muted?: boolean;
+  outputLeft?: number;
+  outputRight?: number;
+}
+
+type SavedBusSettings = Partial<Record<AudioBusId, SavedBusSetting>>;
 
 export function useAudioEngine() {
   const [status, setStatus] = useState<NativeAudioStatus>({ initialized: false });
@@ -58,6 +71,46 @@ export function useAudioEngine() {
         void refresh();
       });
   }, [refresh]);
+
+  useEffect(() => {
+    if (!status.initialized) return;
+
+    const saved = readSavedBusSettings();
+    if (!saved) return;
+
+    void (async () => {
+      try {
+        for (const id of ["music", "click", "guide", "master"] as const) {
+          const setting = saved[id];
+          if (!setting) continue;
+
+          if (typeof setting.gainDb === "number") {
+            await setNativeBusGain(id, setting.gainDb);
+          }
+          if (typeof setting.muted === "boolean") {
+            await setNativeBusMuted(id, setting.muted);
+          }
+          if (
+            id !== "master" &&
+            typeof setting.outputLeft === "number" &&
+            typeof setting.outputRight === "number" &&
+            setting.outputLeft <= (status.outputChannels ?? 2) &&
+            setting.outputRight <= (status.outputChannels ?? 2)
+          ) {
+            await setNativeBusRoute(
+              id,
+              setting.outputLeft,
+              setting.outputRight
+            );
+          }
+        }
+
+        setStatus(await getAudioStatus());
+      } catch (cause) {
+        setError("Saved audio routing could not be restored: " + messageOf(cause));
+      }
+    })();
+  }, [status.initialized, status.outputChannels]);
 
   useEffect(() => {
     if (!status.initialized) return;
@@ -201,6 +254,7 @@ export function useAudioEngine() {
       gainDb: number
     ) => {
       const next = await setNativeBusGain(id, gainDb);
+      saveBusSetting(id, { gainDb });
       setStatus(next);
     },
     setBusMuted: async (
@@ -208,6 +262,7 @@ export function useAudioEngine() {
       muted: boolean
     ) => {
       const next = await setNativeBusMuted(id, muted);
+      saveBusSetting(id, { muted });
       setStatus(next);
     },
     setBusRoute: async (
@@ -216,12 +271,34 @@ export function useAudioEngine() {
       outputRight: number
     ) => {
       const next = await setNativeBusRoute(id, outputLeft, outputRight);
+      saveBusSetting(id, { outputLeft, outputRight });
       setStatus(next);
     },
     setTrackGain: setNativeTrackGain,
     setTrackMuted: setNativeTrackMuted,
     setTrackSolo: setNativeTrackSolo
   };
+}
+
+function readSavedBusSettings(): SavedBusSettings | null {
+  const raw = localStorage.getItem(BUS_SETTINGS_KEY);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as SavedBusSettings;
+  } catch {
+    localStorage.removeItem(BUS_SETTINGS_KEY);
+    return null;
+  }
+}
+
+function saveBusSetting(id: AudioBusId, update: SavedBusSetting) {
+  const current = readSavedBusSettings() ?? {};
+  current[id] = {
+    ...current[id],
+    ...update
+  };
+  localStorage.setItem(BUS_SETTINGS_KEY, JSON.stringify(current));
 }
 
 function messageOf(cause: unknown): string {
