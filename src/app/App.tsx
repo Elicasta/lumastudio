@@ -625,14 +625,18 @@ export function App() {
                 />
               )}
               {showTool === "connections" && <Connections audio={audio} remote={remote} lumarig={lumarig} song={selectedSong} onSongChange={setSelectedSong} />}
-              {showTool === "settings" && <SettingsPage audio={audio} />
-                <div className="panel project-actions">
-                  <strong>{project.name}</strong>
-                  <span>{projectPath ?? "Unsaved Studio Project"}</span>
-                  <button onClick={() => void openStudioProject()}>Open Project</button>
-                  <button onClick={() => void saveCurrentProject(false)}>Save Project</button>
-                  <button onClick={() => void saveCurrentProject(true)}>Save As…</button>
-                </div>}
+              {showTool === "settings" && (
+                <>
+                  <SettingsPage audio={audio} />
+                  <div className="panel project-actions">
+                    <strong>{project.name}</strong>
+                    <span>{projectPath ?? "Unsaved Studio Project"}</span>
+                    <button onClick={() => void openStudioProject()}>Open Project</button>
+                    <button onClick={() => void saveCurrentProject(false)}>Save Project</button>
+                    <button onClick={() => void saveCurrentProject(true)}>Save As…</button>
+                  </div>
+                </>
+              )}
             </>
           )}
 
