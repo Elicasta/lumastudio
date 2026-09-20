@@ -27,6 +27,7 @@ export interface RemoteRelayEvents {
   onStatus: (status: RemoteRelayStatus) => void;
   onSession: (session: RemoteSessionInfo | null) => void;
   onCommand: (command: RemoteCommandEnvelope) => Promise<RemoteCommandAck>;
+  onRemoteClients: (count: number) => void;
   onError: (message: string | null) => void;
 }
 
@@ -132,6 +133,7 @@ export class RemoteRelay {
     const session = this.session;
     this.session = null;
     this.events.onSession(null);
+    this.events.onRemoteClients(0);
     this.events.onStatus("idle");
 
     if (closeRemoteSession && session) {
@@ -160,6 +162,9 @@ export class RemoteRelay {
           broadcast: {
             self: false,
             ack: true
+          },
+          presence: {
+            key: "studio-" + this.studioId
           }
         }
       })
@@ -188,6 +193,9 @@ export class RemoteRelay {
       })
       .on("broadcast", { event: "remote_hello" }, () => {
         void this.flushState(true);
+      })
+      .on("presence", { event: "sync" }, () => {
+        this.events.onRemoteClients(countRemoteClients(channel.presenceState()));
       });
 
     this.channel = channel;
@@ -200,6 +208,11 @@ export class RemoteRelay {
           settled = true;
           this.online = true;
           this.events.onStatus("online");
+          void channel.track({
+            type: "studio",
+            studioId: this.studioId,
+            connectedAt: new Date().toISOString()
+          });
           void this.flushState(true);
           resolve();
           return;
@@ -301,4 +314,19 @@ async function invokeSessionFunction<T = { ok: true }>(
 function messageOf(cause: unknown) {
   if (cause instanceof Error) return cause.message;
   return String(cause);
+}
+
+
+function countRemoteClients(
+  state: Record<string, Array<Record<string, unknown>>>
+) {
+  let count = 0;
+
+  for (const presences of Object.values(state)) {
+    if (presences.some((presence) => presence.type === "remote")) {
+      count += 1;
+    }
+  }
+
+  return count;
 }
