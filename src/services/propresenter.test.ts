@@ -35,8 +35,8 @@ describe("ProPresenter integration", () => {
 
   it("matches numbered Studio sections to an unnumbered ProPresenter group", () => {
     const groups = [
-      { name: "Verse", index: 0, startIndex: 0, slideCount: 2 },
-      { name: "Chorus", index: 1, startIndex: 2, slideCount: 2 }
+      { id: "verse", name: "Verse", index: 0, startIndex: 0, slideCount: 2 },
+      { id: "chorus", name: "Chorus", index: 1, startIndex: 2, slideCount: 2 }
     ];
 
     expect(findMatchingProPresenterGroup("Chorus 2", groups)?.name).toBe("Chorus");
