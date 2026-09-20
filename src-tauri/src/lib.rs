@@ -1,5 +1,6 @@
 mod audio;
 mod project;
+mod video;
 
 use audio::AudioService;
 
@@ -36,7 +37,10 @@ pub fn run() {
             audio::audio_set_bus_route,
             audio::audio_cancel_transition,
             project::project_read,
-            project::project_write
+            project::project_write,
+            video::video_open_output,
+            video::video_close_output,
+            video::video_fullscreen_output
         ])
         .run(tauri::generate_context!())
         .expect("error while running LumaRig Studio");
