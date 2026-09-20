@@ -30,7 +30,7 @@ const existing: Song = {
   ]
 };
 
-const raw = {
+const raw: Parameters<typeof mapPlanningCenterPlan>[0] = {
   plan: {
     data: {
       id: "plan-1",
