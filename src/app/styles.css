@@ -1727,3 +1727,38 @@ button:hover { border-color: #47657d; background: #172a39; }
   font-size:7px;
   padding:0 4px;
 }
+
+.section-direction-editor {
+  margin-top:8px;
+  padding-top:9px;
+  border-top:1px solid #1d2d38;
+}
+.section-direction-editor>small {
+  display:block;
+  color:#607889;
+  font-size:7px;
+  letter-spacing:.1em;
+}
+.section-direction-editor>span {
+  display:block;
+  margin-top:6px;
+  color:#637b8b;
+  font-size:7px;
+  line-height:1.4;
+}
+.direction-cue-options {
+  display:flex;
+  flex-wrap:wrap;
+  gap:5px;
+  margin-top:6px;
+}
+.direction-cue-options button {
+  min-height:28px;
+  padding:5px 8px;
+  font-size:7px;
+}
+.direction-cue-options button.active {
+  border-color:#765cb1;
+  background:#281f42;
+  color:#d8cbff;
+}
