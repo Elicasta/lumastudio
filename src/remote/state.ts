@@ -81,6 +81,7 @@ export function buildRemoteStudioState({
         meter: item.meter,
         durationSeconds: item.durationSeconds,
         status: item.status,
+        countIn: item.countIn,
         current: item.id === song.id
       }))
     },
