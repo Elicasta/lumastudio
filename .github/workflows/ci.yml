@@ -16,11 +16,25 @@ jobs:
           node-version: 22
 
       - run: npm install
+      - name: Frontend environment
+        run: node --version && npm --version
       - run: npm run check:versions
       - name: Audit runtime dependencies
         run: npm audit --omit=dev --audit-level=high
       - run: npm test
       - run: npm run build
+
+      - name: Upload frontend diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-diagnostics
+          path: |
+            package.json
+            src/app/App.tsx
+            src/domain
+            src/services
+          if-no-files-found: ignore
 
   native:
     runs-on: macos-latest
@@ -38,6 +52,8 @@ jobs:
           workspaces: "./src-tauri -> target"
 
       - run: npm install
+      - name: Native environment
+        run: node --version && npm --version && rustc --version && cargo --version
       - run: npm run check:versions
       - run: npm run build
       - run: cargo check --manifest-path src-tauri/Cargo.toml
