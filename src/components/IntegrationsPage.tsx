@@ -215,7 +215,7 @@ export function IntegrationsPage({
                 key={group.index}
                 className={group.name === proPresenter.state.currentGroup ? "active" : ""}
                 disabled={!proPresenter.state.connected}
-                onClick={() => void proPresenter.triggerGroup(group.name)}
+                onClick={() => void proPresenter.triggerGroup(group.id)}
               >
                 {group.name}
                 <small>{group.slideCount} slides</small>
