@@ -33,7 +33,8 @@ import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, S
 import { adjacentSong } from "../domain/setlist";
 import { sectionCueDispatch } from "../domain/cues";
 import { dispatchSectionCue } from "../services/cueDispatcher";
-import { sendMidiPatch } from "../services/midi";
+import { connectMidiOutput, disconnectMidiOutput, listMidiOutputs, sendControlChange, sendMidiPatch, sendProgramChange, type MidiPort } from "../services/midi";
+import type { MidiSettings } from "../domain/midi";
 import {
   buildAutomaticGuideTimeline,
   countPulseForSection,
@@ -597,7 +598,7 @@ export function App() {
               {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
               {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
               {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
-              {buildTool === "midi" && <UnavailableFeature title="MIDI" text="Native MIDI routing is being wired into the v0.3 runtime." />}
+              {buildTool === "midi" && <MidiEditor settings={project.midi ?? { channel: 1 }} sections={selectedSong.sections} onSettingsChange={(midi) => setProject((current) => ({ ...current, midi, updatedAt: new Date().toISOString() }))} onSectionsChange={(sections) => { const song = { ...selectedSong, sections }; setSelectedSong(song); setProject((current) => ({ ...current, setlist: { ...current.setlist, songs: current.setlist.songs.map((item) => item.id === song.id ? song : item) }, updatedAt: new Date().toISOString() })); }} />}
               {buildTool === "video" && <VideoEditor program={project.video} sections={selectedSong.sections} positionSeconds={audio.status.positionSeconds ?? 0} playing={Boolean(audio.status.playing || previewPlaying)} sectionId={selectedSong.sections[currentSection]?.id} onChange={(video) => setProject((current) => ({ ...current, video, updatedAt: new Date().toISOString() }))} />}
             </>
           )}
@@ -708,6 +709,29 @@ function ToolRail<T extends string>({
       ))}
     </div>
   );
+}
+
+function MidiEditor({ settings, sections, onSettingsChange, onSectionsChange }: { settings: MidiSettings; sections: Song["sections"]; onSettingsChange: (settings: MidiSettings) => void; onSectionsChange: (sections: Song["sections"]) => void }) {
+  const [ports, setPorts] = useState<MidiPort[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState("");
+  const [testProgram, setTestProgram] = useState(0);
+  const refresh = useCallback(async () => { try { setPorts(await listMidiOutputs()); setError(""); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  async function connect(index: number) {
+    try { const name = await connectMidiOutput(index); onSettingsChange({ ...settings, outputIndex: index, outputName: name }); setConnected(true); setError(""); }
+    catch (e) { setConnected(false); setError(e instanceof Error ? e.message : String(e)); }
+  }
+  return <section className="midi-editor">
+    <div className="page-head"><div><h1>MIDI</h1><p>Route section changes and manual messages to hardware, IAC or virtual MIDI destinations.</p></div><button onClick={() => void refresh()}>Refresh Devices</button></div>
+    {error && <div className="error-banner">{error}</div>}
+    <div className="midi-grid">
+      <div className="panel"><h2>Output</h2><label><span>Destination</span><select value={settings.outputIndex ?? ""} onChange={(e) => void connect(Number(e.currentTarget.value))}><option value="">Select MIDI output</option>{ports.map((port)=><option key={port.index} value={port.index}>{port.name}</option>)}</select></label><label><span>Default Channel</span><input type="number" min="1" max="16" value={settings.channel} onChange={(e)=>onSettingsChange({...settings,channel:Math.max(1,Math.min(16,Number(e.currentTarget.value)))})}/></label><p>{connected ? "Connected · " + settings.outputName : "Not connected"}</p><button disabled={!connected} onClick={() => void disconnectMidiOutput().then(()=>setConnected(false))}>Disconnect</button></div>
+      <div className="panel"><h2>Test Output</h2><label><span>Program</span><input type="number" min="0" max="127" value={testProgram} onChange={(e)=>setTestProgram(Number(e.currentTarget.value))}/></label><button disabled={!connected} onClick={()=>void sendProgramChange(settings.channel,testProgram)}>Send Program Change</button><button disabled={!connected} onClick={()=>void sendControlChange(settings.channel,1,127)}>Send CC 1 · 127</button></div>
+      <div className="panel midi-section-map"><h2>Section Patches</h2>{sections.map((section,index)=><label key={section.id}><span>{section.name}</span><input value={section.midiPatch ?? ""} placeholder={"e.g. 12@" + settings.channel} onChange={(e)=>onSectionsChange(sections.map((item,i)=>i===index?{...item,midiPatch:e.currentTarget.value||undefined}:item))}/><button disabled={!connected || !section.midiPatch} onClick={()=>section.midiPatch && void sendMidiPatch(section.midiPatch)}>Test</button></label>)}</div>
+    </div>
+  </section>;
 }
 
 function VideoEditor({ program, sections, positionSeconds, playing, sectionId, onChange }: { program?: VideoProgram; sections: Song["sections"]; positionSeconds: number; playing: boolean; sectionId?: string; onChange: (program: VideoProgram) => void }) {
