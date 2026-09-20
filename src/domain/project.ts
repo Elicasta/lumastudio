@@ -1,4 +1,5 @@
 import type { Setlist, Song } from "./types";
+import type { PadSlot } from "../services/pads";
 
 export const PROJECT_SCHEMA_VERSION = 1;
 
@@ -9,6 +10,8 @@ export interface StudioProject {
   setlist: Setlist;
   selectedSongId?: string;
   updatedAt: string;
+  padCount?: 12 | 16;
+  pads?: PadSlot[];
   lightingBindings?: Record<string, {
     lumarigShowId: string;
     songId: string;
@@ -26,6 +29,8 @@ export function createProject(name: string, songs: Song[] = []): StudioProject {
     setlist: { id: crypto.randomUUID(), name, songs },
     selectedSongId: songs[0]?.id,
     updatedAt: new Date().toISOString(),
+    padCount: 12,
+    pads: [],
     lightingBindings: {}
   };
 }
