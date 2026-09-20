@@ -2,6 +2,7 @@ mod audio;
 mod project;
 mod video;
 mod midi;
+mod integrations;
 
 use audio::AudioService;
 
