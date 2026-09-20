@@ -29,7 +29,8 @@ import type { NativeAudioStatus, NativeAudioTrack } from "../services/audio";
 
 const nav: Array<{ page: Page; label: string; icon: typeof Music2 }> = [
   { page: "setlist", label: "Setlist", icon: ListMusic },
-  { page: "arrangement", label: "Song Arrangement", icon: AudioLines },
+  { page: "songs", label: "Songs", icon: Music2 },
+  { page: "arrangement", label: "Arrangement", icon: AudioLines },
   { page: "performance", label: "Performance", icon: Play },
   { page: "pads", label: "Pads", icon: Grid2X2 },
   { page: "mixer", label: "Mixer", icon: SlidersHorizontal },
@@ -37,7 +38,7 @@ const nav: Array<{ page: Page; label: string; icon: typeof Music2 }> = [
   { page: "midi", label: "MIDI", icon: Radio },
   { page: "video", label: "Video", icon: Clapperboard },
   { page: "sources", label: "Sources", icon: Upload },
-  { page: "connections", label: "Connections", icon: Cable },
+  { page: "connections", label: "Devices", icon: Cable },
   { page: "settings", label: "Settings", icon: Settings }
 ];
 
@@ -95,6 +96,14 @@ export function App() {
             <SetlistPage
               selected={selectedSong}
               audio={audio}
+              onSelect={setSelectedSong}
+              onOpenArrangement={() => setPage("arrangement")}
+              onImport={() => setImportOpen(true)}
+            />
+          )}
+          {page === "songs" && (
+            <SongsPage
+              selected={selectedSong}
               onSelect={setSelectedSong}
               onOpenArrangement={() => setPage("arrangement")}
               onImport={() => setImportOpen(true)}
@@ -548,6 +557,85 @@ function SetlistPage({
           ].map(([key, action]) => (
             <div className="shortcut-line" key={key + action}><kbd>{key}</kbd><span>{action}</span></div>
           ))}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function SongsPage({
+  selected,
+  onSelect,
+  onOpenArrangement,
+  onImport
+}: {
+  selected: Song;
+  onSelect: (song: Song) => void;
+  onOpenArrangement: () => void;
+  onImport: () => void;
+}) {
+  return (
+    <section>
+      <div className="page-head">
+        <div>
+          <h1>Songs</h1>
+          <p>Song library · arrangements, stems, sections and show-control data</p>
+        </div>
+        <button className="primary" onClick={onImport}><Plus size={16} /> Add Song</button>
+      </div>
+
+      <div className="songs-library">
+        <div className="panel songs-list">
+          <div className="song-library-head">
+            <strong>Library</strong>
+            <input placeholder="Search songs" aria-label="Search songs" />
+          </div>
+          {demoSetlist.songs.map((song) => (
+            <button
+              key={song.id}
+              className={song.id === selected.id ? "library-song selected" : "library-song"}
+              onClick={() => onSelect(song)}
+            >
+              <div className="library-art"><Music2 size={16} /></div>
+              <div>
+                <strong>{song.title}</strong>
+                <span>{song.artist}</span>
+              </div>
+              <span>{song.bpm} BPM</span>
+              <span>{song.key}</span>
+              <span>{fmt(song.durationSeconds)}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="panel song-library-detail">
+          <small>SELECTED SONG</small>
+          <h2>{selected.title}</h2>
+          <p>{selected.artist}</p>
+          <div className="library-meta">
+            <Field label="Tempo" value={selected.bpm + " BPM"} />
+            <Field label="Key" value={selected.key} />
+            <Field label="Meter" value={selected.meter.join("/")} />
+            <Field label="Length" value={fmt(selected.durationSeconds)} />
+          </div>
+          <div className="library-readiness">
+            {[
+              ["Audio", selected.tracks.some((track) => !["midi","lighting","video"].includes(track.kind))],
+              ["Sections", selected.sections.length > 0],
+              ["MIDI", selected.tracks.some((track) => track.kind === "midi")],
+              ["Lighting", selected.tracks.some((track) => track.kind === "lighting")],
+              ["Video", selected.tracks.some((track) => track.kind === "video")]
+            ].map(([label, ready]) => (
+              <div key={String(label)}>
+                <span className={ready ? "dot ok" : "dot bad"} />
+                <strong>{String(label)}</strong>
+                <span>{ready ? "Ready" : "Not configured"}</span>
+              </div>
+            ))}
+          </div>
+          <button className="primary wide" onClick={onOpenArrangement}>
+            Open Arrangement
+          </button>
         </div>
       </div>
     </section>
