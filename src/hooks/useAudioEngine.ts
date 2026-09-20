@@ -7,11 +7,11 @@ import {
   audioScheduleTransition,
   audioCancelTransition,
   chooseVoicePackDirectory,
-  chooseWavTracks,
+  chooseAudioTracks,
   getAudioStatus,
   isNativeApp,
   loadVoicePack,
-  loadWavSong,
+  loadAudioSong,
   setGuideTimeline,
   setNativeBusGain,
   setNativeBusMuted,
@@ -127,10 +127,10 @@ export function useAudioEngine() {
     setError(null);
 
     try {
-      const selected = await chooseWavTracks();
+      const selected = await chooseAudioTracks();
       if (selected.length === 0) return null;
 
-      const nextStatus = await loadWavSong(selected);
+      const nextStatus = await loadAudioSong(selected);
       setTracks(selected);
       setStatus(nextStatus);
       return { tracks: selected, status: nextStatus };
