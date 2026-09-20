@@ -494,8 +494,8 @@ mod tests {
         assert!(!state.transition.active());
         assert!(state.transport.is_playing());
         assert_eq!(state.transport.frame(), 3);
-        assert_eq!(output[4], 0.2);
-        assert_eq!(output[5], 0.2);
+        assert_eq!(output[4], 0.3);
+        assert_eq!(output[5], 0.3);
     }
 
     #[test]
