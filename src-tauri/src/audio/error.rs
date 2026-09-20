@@ -31,4 +31,10 @@ pub enum AudioError {
 
     #[error("track '{0}' was not found")]
     TrackNotFound(String),
+
+    #[error("guide voice error: {0}")]
+    Guide(String),
+
+    #[error("audio bus '{0}' was not found")]
+    BusNotFound(String),
 }
