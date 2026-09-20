@@ -12,6 +12,21 @@ export type TrackKind =
   | "video";
 
 export type CountInMode = "none" | "beats" | "bars" | "adaptive";
+export type PresentationMode = "manual" | "section-follow" | "full-auto";
+export type PresentationCueAction = "next" | "previous";
+
+export interface PresentationCue {
+  id: string;
+  atSeconds: number;
+  action: PresentationCueAction;
+}
+
+export interface PresentationAutomation {
+  mode: PresentationMode;
+  cueLeadBeats: number;
+  cues: PresentationCue[];
+}
+
 export type CountFeel = "notated" | "compound";
 export type GuideOutputMode =
   | "off"
@@ -95,6 +110,7 @@ export interface Song {
   tracks: Track[];
   sections: Section[];
   external?: SongExternalLinks;
+  presentation?: PresentationAutomation;
 }
 
 export interface Setlist {
@@ -110,6 +126,7 @@ export type BuildTool =
   | "mixer"
   | "pads"
   | "lighting"
+  | "presentation"
   | "midi"
   | "video";
 
