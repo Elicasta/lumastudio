@@ -61,12 +61,31 @@ impl TrackControl {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackBus {
+    Music,
+    Click,
+    Guide,
+}
+
+impl TrackBus {
+    pub fn from_id(id: &str) -> Option<Self> {
+        match id {
+            "music" => Some(Self::Music),
+            "click" => Some(Self::Click),
+            "guide" => Some(Self::Guide),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct PcmTrack {
     pub id: String,
     pub name: String,
     pub samples: Arc<[f32]>,
     pub start_frame: u64,
+    pub bus: TrackBus,
     pub control: Arc<TrackControl>,
 }
 
@@ -140,6 +159,7 @@ mod tests {
             name: "Drums".into(),
             samples: Arc::from(vec![0.2, -0.2, 0.4, -0.4]),
             start_frame: 8,
+            bus: TrackBus::Music,
             control: Arc::new(TrackControl::new(0.0)),
         };
 
@@ -156,6 +176,7 @@ mod tests {
             name: id.into(),
             samples: Arc::from(vec![0.0; frames * 2]),
             start_frame,
+            bus: TrackBus::Music,
             control: Arc::new(TrackControl::new(0.0)),
         };
 
