@@ -500,6 +500,7 @@ export function App() {
     void dispatchSectionCue(cue, {
       video: project.video,
       sendMidiPatch,
+      midiConnected: Boolean(project.midi?.outputName),
       sendLumaRig: lumarig.state === "connected" ? (command) => lumarig.send(command) : undefined
     });
   }, [selectedSong, currentSection, project.video, lumarig.state, lumarig.send]);
