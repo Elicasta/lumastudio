@@ -113,6 +113,7 @@ export function App() {
           firstCountDelaySeconds: 0,
           beatSeconds: countIn.beatSeconds,
           countBeats: countIn.countBeats,
+          pulsesPerBar: countIn.pulsesPerBar,
           clickEnabled,
           keepAudio: false,
           guideEvents: voiceEnabled
@@ -208,6 +209,7 @@ export function App() {
           firstCountDelaySeconds: plan.firstCountAfterSeconds,
           beatSeconds: plan.beatSeconds,
           countBeats: plan.countBeats,
+          pulsesPerBar: plan.pulsesPerBar,
           clickEnabled,
           keepAudio: true,
           guideEvents: voiceEnabled
@@ -1701,7 +1703,16 @@ function Performance({
               ? audio.status.countInBeat || "•"
               : "→"}
             <span>
-              {countActive ? "/ " + (audio.status.countInTotal ?? 0) : " quantized"}
+              {countActive
+                ? "/ " +
+                  (audio.status.countInTotal ?? 0) +
+                  ((audio.status.countInBars ?? 0) > 1
+                    ? " · bar " +
+                      (audio.status.countInBar ?? 0) +
+                      "/" +
+                      (audio.status.countInBars ?? 0)
+                    : "")
+                : " quantized"}
             </span>
           </div>
           <p>{countActive ? "Landing on beat 1" : "No count · beat-quantized jump"}</p>
