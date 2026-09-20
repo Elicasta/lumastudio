@@ -317,7 +317,7 @@ function messageOf(cause: unknown) {
 }
 
 
-function countRemoteClients(
+export function countRemoteClients(
   state: Record<string, Array<Record<string, unknown>>>
 ) {
   let count = 0;
