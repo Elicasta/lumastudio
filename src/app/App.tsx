@@ -1471,7 +1471,8 @@ function Connections({
           <h2>Pair iPad or iPhone</h2>
           <p>
             LumaRig Studio creates and owns this session. The remote only joins
-            the session after you enter the pairing code.
+            after you enter the pairing code. New Pair Code keeps connected
+            remotes online. Reset Session revokes the current session.
           </p>
         </div>
 
@@ -1489,7 +1490,10 @@ function Connections({
                 : "Ready for remote"
               : "Relay " + remote.status}
           </span>
-          <button onClick={() => void remote.rotatePairCode()}>New Pair Code</button>
+          <div className="remote-session-buttons">
+            <button onClick={() => void remote.rotatePairCode()}>New Pair Code</button>
+            <button onClick={() => void remote.restart()}>Reset Session</button>
+          </div>
         </div>
       </div>
 
