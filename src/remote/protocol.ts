@@ -1,22 +1,29 @@
-export type RemoteCommand =
-  | "transport.play"
-  | "transport.pause"
-  | "transport.stop"
-  | "transport.go"
-  | "transport.previous"
-  | "transport.next"
-  | "section.launch"
-  | "song.next"
-  | "song.previous"
-  | "song.select"
-  | "pad.trigger"
-  | "pad.release"
-  | "mixer.gain"
-  | "mixer.mute"
-  | "mixer.solo"
-  | "lighting.blackout"
-  | "lighting.scene"
-  | "lighting.xy";
+export const REMOTE_COMMANDS = [
+  "transport.play",
+  "transport.pause",
+  "transport.stop",
+  "transport.go",
+  "transport.previous",
+  "transport.next",
+  "section.launch",
+  "song.next",
+  "song.previous",
+  "song.select",
+  "pad.trigger",
+  "pad.release",
+  "mixer.gain",
+  "mixer.mute",
+  "mixer.solo",
+  "lighting.blackout",
+  "lighting.scene",
+  "lighting.xy"
+] as const;
+
+export type RemoteCommand = (typeof REMOTE_COMMANDS)[number];
+
+export function isRemoteCommand(value: unknown): value is RemoteCommand {
+  return REMOTE_COMMANDS.includes(value as RemoteCommand);
+}
 
 export interface RemoteCommandEnvelope {
   type: "command";
@@ -115,6 +122,6 @@ export function isRemoteCommandEnvelope(value: unknown): value is RemoteCommandE
   return (
     candidate.type === "command" &&
     typeof candidate.id === "string" &&
-    typeof candidate.command === "string"
+    isRemoteCommand(candidate.command)
   );
 }
