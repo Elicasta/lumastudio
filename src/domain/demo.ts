@@ -28,6 +28,14 @@ export const goodness: Song = {
   status: "ready",
   countIn: { mode: "bars", value: 1 },
   manualJumpCountIn: { mode: "adaptive", minBeats: 2 },
+  guideVoice: {
+    voicePackId: "core-en-neutral-f",
+    outputMode: "voice-and-click",
+    sectionCues: "automatic",
+    announceFirstSection: true,
+    voiceFinalBarOnly: true,
+    countFeel: "notated"
+  },
   tracks: [
     track("click", "Click", "click", "#cbd5e1"),
     track("guide", "Guide", "guide", "#60a5fa"),
