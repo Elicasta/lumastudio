@@ -7,6 +7,6 @@ const base: VideoProgram = { output:{displayEnabled:false,ndiEnabled:false,ndiNa
 describe("video runtime",()=>{
   it("maps master transport into trimmed source time",()=>{ expect(activeVideoClip(base,12)?.sourceSeconds).toBe(22); });
   it("clears after a non-looping trim",()=>{ expect(activeVideoClip(base,20)).toBeNull(); });
-  it("wraps a looping trim",()=>{ const p={...base,clips:[{...base.clips[0],loop:true}]}; expect(activeVideoClip(p,22)?.sourceSeconds).toBe(22); });
-  it("resolves section-triggered clips",()=>{ const p={...base,clips:[{...base.clips[0],playbackMode:"section" as const,sectionId:"chorus"}]}; expect(activeVideoClip(p,0,"chorus")?.sourceSeconds).toBe(20); });
+  it("wraps a looping trim",()=>{ const p: VideoProgram={...base,clips:[{...base.clips[0],loop:true}]}; expect(activeVideoClip(p,22)?.sourceSeconds).toBe(22); });
+  it("resolves section-triggered clips",()=>{ const p: VideoProgram={...base,clips:[{...base.clips[0],playbackMode:"section",sectionId:"chorus"}]}; expect(activeVideoClip(p,0,"chorus")?.sourceSeconds).toBe(20); });
 });
