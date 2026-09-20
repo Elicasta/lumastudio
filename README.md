@@ -84,5 +84,7 @@ Manual Section controls are overrides:
 - no-count jumps remain beat-quantized rather than cutting at a random sample
 - detected downbeat offset anchors the musical grid without trimming source media
 
-Count-in clicks are currently generated inside the native audio engine. Dedicated click/guide output-bus routing and spoken guide samples are separate follow-up work.
+Count-in clicks are currently generated inside the native audio engine. The reusable spoken Guide vocabulary, phrase planner, voice-pack validator, and recording contract are now defined. Dedicated native Guide-bus sample playback/output routing is the next audio step.
+
+See [Guide Voice System](./docs/GUIDE_VOICE_SYSTEM.md) and [Voice Pack Recording Script](./docs/VOICE_PACK_RECORDING_SCRIPT.md).
 
