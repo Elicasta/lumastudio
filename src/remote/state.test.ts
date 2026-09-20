@@ -20,7 +20,7 @@ describe("buildRemoteStudioState", () => {
       }
     });
 
-    expect(state.protocolVersion).toBe(1);
+    expect(state.protocolVersion).toBe(2);
     expect(state.setlist.id).toBe(demoSetlist.id);
     expect(state.setlist.songs).toHaveLength(demoSetlist.songs.length);
     expect(state.song.id).toBe(goodness.id);
