@@ -9,6 +9,7 @@ pub struct ScheduledTransition {
     first_count_delay_frames: AtomicU64,
     beat_frames: AtomicU64,
     count_beats: AtomicU64,
+    click_enabled: AtomicBool,
     keep_audio: AtomicBool,
 }
 
@@ -21,6 +22,7 @@ pub struct TransitionSnapshot {
     pub first_count_delay_frames: u64,
     pub beat_frames: u64,
     pub count_beats: u64,
+    pub click_enabled: bool,
     pub keep_audio: bool,
 }
 
@@ -40,6 +42,7 @@ impl ScheduledTransition {
             first_count_delay_frames: AtomicU64::new(0),
             beat_frames: AtomicU64::new(0),
             count_beats: AtomicU64::new(0),
+            click_enabled: AtomicBool::new(true),
             keep_audio: AtomicBool::new(false),
         }
     }
@@ -51,6 +54,7 @@ impl ScheduledTransition {
         first_count_delay_frames: u64,
         beat_frames: u64,
         count_beats: u64,
+        click_enabled: bool,
         keep_audio: bool,
     ) {
         self.active.store(false, Ordering::Release);
@@ -62,6 +66,7 @@ impl ScheduledTransition {
             .store(first_count_delay_frames.min(total_frames), Ordering::Release);
         self.beat_frames.store(beat_frames, Ordering::Release);
         self.count_beats.store(count_beats, Ordering::Release);
+        self.click_enabled.store(click_enabled, Ordering::Release);
         self.keep_audio.store(keep_audio, Ordering::Release);
         self.active.store(true, Ordering::Release);
     }
@@ -86,6 +91,7 @@ impl ScheduledTransition {
                 .load(Ordering::Acquire),
             beat_frames: self.beat_frames.load(Ordering::Acquire),
             count_beats: self.count_beats.load(Ordering::Acquire),
+            click_enabled: self.click_enabled.load(Ordering::Acquire),
             keep_audio: self.keep_audio.load(Ordering::Acquire),
         }
     }
@@ -132,7 +138,7 @@ mod tests {
     #[test]
     fn schedules_and_reports_count_progress() {
         let transition = ScheduledTransition::new();
-        transition.schedule(1000, 400, 100, 100, 3, true);
+        transition.schedule(1000, 400, 100, 100, 3, true, true);
 
         assert!(transition.active());
         assert_eq!(transition.current_count_beat(), Some((0, 3)));
@@ -144,7 +150,7 @@ mod tests {
     #[test]
     fn cancel_clears_active_transition() {
         let transition = ScheduledTransition::new();
-        transition.schedule(1000, 400, 0, 100, 4, false);
+        transition.schedule(1000, 400, 0, 100, 4, true, false);
         transition.cancel();
 
         assert!(!transition.active());
