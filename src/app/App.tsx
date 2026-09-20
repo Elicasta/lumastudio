@@ -1472,7 +1472,7 @@ function Connections({
           <span className={remote.status === "online" ? "ready" : "muted"}>
             {remote.status === "online" ? "Supabase Realtime online" : "Relay " + remote.status}
           </span>
-          <button onClick={() => void remote.restart()}>New Pair Code</button>
+          <button onClick={() => void remote.rotatePairCode()}>New Pair Code</button>
         </div>
       </div>
 
