@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   Activity,
   AudioLines,
@@ -24,6 +24,12 @@ import {
 import { demoSetlist, goodness } from "../domain/demo";
 import type { ImportStep, Page, Song } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
+import {
+  planManualSectionJump,
+  planSongCountIn,
+  sectionIndexAtSeconds,
+  sectionStartSeconds
+} from "../domain/timing";
 import { useRemoteRelay } from "../hooks/useRemoteRelay";
 import type { RemoteCommandEnvelope } from "../remote/protocol";
 import { buildRemoteStudioState } from "../remote/state";
@@ -56,6 +62,7 @@ export function App() {
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [currentSection, setCurrentSection] = useState(4);
+  const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const audio = useAudioEngine();
 
   const selectSetlistSong = useCallback(
@@ -64,11 +71,133 @@ export function App() {
         await audio.stop();
       }
       setPreviewPlaying(false);
+      setQueuedManualSection(null);
       setSelectedSong(song);
       setCurrentSection(0);
     },
     [audio.hasLoadedAudio, audio.stop]
   );
+
+  const startPlayback = useCallback(async () => {
+    if (!audio.hasLoadedAudio) {
+      setPreviewPlaying(true);
+      return;
+    }
+
+    if (audio.status.countInActive) return;
+    if (audio.status.playing) return;
+
+    const position = audio.status.positionSeconds ?? 0;
+    if (position <= 0.05) {
+      const countIn = planSongCountIn(selectedSong);
+
+      if (countIn.countBeats > 0) {
+        await audio.scheduleTransition({
+          targetSeconds: 0,
+          delaySeconds: countIn.launchAfterSeconds,
+          firstCountDelaySeconds: 0,
+          beatSeconds: countIn.beatSeconds,
+          countBeats: countIn.countBeats,
+          keepAudio: false
+        });
+        return;
+      }
+    }
+
+    await audio.playPause();
+  }, [
+    audio.hasLoadedAudio,
+    audio.playPause,
+    audio.scheduleTransition,
+    audio.status.countInActive,
+    audio.status.playing,
+    audio.status.positionSeconds,
+    selectedSong
+  ]);
+
+  const pausePlayback = useCallback(async () => {
+    if (!audio.hasLoadedAudio) {
+      setPreviewPlaying(false);
+      return;
+    }
+
+    if (audio.status.countInActive) {
+      await audio.cancelTransition();
+      return;
+    }
+
+    if (audio.status.playing) {
+      await audio.playPause();
+    }
+  }, [
+    audio.cancelTransition,
+    audio.hasLoadedAudio,
+    audio.playPause,
+    audio.status.countInActive,
+    audio.status.playing
+  ]);
+
+  const launchSection = useCallback(
+    async (index: number) => {
+      const target = selectedSong.sections[index];
+      if (!target) return;
+
+      if (
+        audio.hasLoadedAudio &&
+        audio.status.playing &&
+        !audio.status.countInActive
+      ) {
+        const position = audio.status.positionSeconds ?? 0;
+        const plan = planManualSectionJump(selectedSong, position, target);
+
+        setQueuedManualSection(index);
+        await audio.scheduleTransition({
+          targetSeconds: plan.targetSeconds,
+          delaySeconds: plan.launchAfterSeconds,
+          firstCountDelaySeconds: plan.firstCountAfterSeconds,
+          beatSeconds: plan.beatSeconds,
+          countBeats: plan.countBeats,
+          keepAudio: true
+        });
+        return;
+      }
+
+      if (audio.hasLoadedAudio) {
+        await audio.seek(sectionStartSeconds(selectedSong, index));
+      }
+
+      setQueuedManualSection(null);
+      setCurrentSection(index);
+    },
+    [
+      audio.hasLoadedAudio,
+      audio.scheduleTransition,
+      audio.seek,
+      audio.status.countInActive,
+      audio.status.playing,
+      audio.status.positionSeconds,
+      selectedSong
+    ]
+  );
+
+  useEffect(() => {
+    if (!audio.hasLoadedAudio || !audio.status.playing) return;
+    if (audio.status.countInActive) return;
+
+    const index = sectionIndexAtSeconds(
+      selectedSong,
+      audio.status.positionSeconds ?? 0
+    );
+
+    setCurrentSection((current) => (current === index ? current : index));
+    setQueuedManualSection((queued) => (queued === index ? null : queued));
+  }, [
+    audio.hasLoadedAudio,
+    audio.status.countInActive,
+    audio.status.playing,
+    audio.status.positionSeconds,
+    selectedSong
+  ]);
 
   const handleRemoteCommand = useCallback(
     async (message: RemoteCommandEnvelope) => {
@@ -77,19 +206,11 @@ export function App() {
 
       switch (message.command) {
         case "transport.play":
-          if (audio.hasLoadedAudio) {
-            if (!audio.status.playing) await audio.playPause();
-          } else {
-            setPreviewPlaying(true);
-          }
+          await startPlayback();
           return ok();
 
         case "transport.pause":
-          if (audio.hasLoadedAudio) {
-            if (audio.status.playing) await audio.playPause();
-          } else {
-            setPreviewPlaying(false);
-          }
+          await pausePlayback();
           return ok();
 
         case "transport.stop":
@@ -99,20 +220,20 @@ export function App() {
 
         case "transport.go":
         case "transport.next":
-          setCurrentSection((index) =>
-            Math.min(selectedSong.sections.length - 1, index + 1)
+          await launchSection(
+            Math.min(selectedSong.sections.length - 1, currentSection + 1)
           );
           return ok();
 
         case "transport.previous":
-          setCurrentSection((index) => Math.max(0, index - 1));
+          await launchSection(Math.max(0, currentSection - 1));
           return ok();
 
         case "section.launch": {
           const id = String(message.payload?.id ?? "");
           const index = selectedSong.sections.findIndex((section) => section.id === id);
           if (index < 0) return reject("Section not found in the current Song.");
-          setCurrentSection(index);
+          await launchSection(index);
           return ok();
         }
 
@@ -205,7 +326,10 @@ export function App() {
     },
     [
       audio.hasLoadedAudio,
-      audio.playPause,
+      currentSection,
+      launchSection,
+      pausePlayback,
+      startPlayback,
       audio.setTrackGain,
       audio.setTrackMuted,
       audio.setTrackSolo,
@@ -269,6 +393,8 @@ export function App() {
           onPreviewPlaying={setPreviewPlaying}
           audio={audio}
           remoteOnline={remote.status === "online"}
+          onStart={startPlayback}
+          onPause={pausePlayback}
         />
         <div className="workspace">
           {page === "setlist" && (
@@ -288,7 +414,12 @@ export function App() {
               onImport={() => setImportOpen(true)}
             />
           )}
-          {page === "arrangement" && <Arrangement song={selectedSong} />}
+          {page === "arrangement" && (
+            <Arrangement
+              song={selectedSong}
+              onSongChange={setSelectedSong}
+            />
+          )}
           {page === "performance" && (
             <Performance
               song={selectedSong}
@@ -298,6 +429,9 @@ export function App() {
               onNextSong={(song) => void selectSetlistSong(song)}
               remoteOnline={remote.status === "online"}
               remoteClients={remote.remoteClients}
+              audio={audio}
+              queuedManualSection={queuedManualSection}
+              onLaunchSection={(index) => void launchSection(index)}
             />
           )}
           {page === "pads" && <Pads />}
