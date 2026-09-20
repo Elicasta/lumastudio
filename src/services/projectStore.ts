@@ -1,5 +1,5 @@
+import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
-import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { parseProject, serializeProject, type StudioProject } from "../domain/project";
 
 export async function saveProject(project: StudioProject, path?: string) {
@@ -9,7 +9,7 @@ export async function saveProject(project: StudioProject, path?: string) {
     filters: [{ name: "LumaRig Studio Project", extensions: ["lumarigstudio"] }]
   });
   if (!target) return null;
-  await writeTextFile(target, serializeProject(project));
+  await invoke("project_write", { path: target, contents: serializeProject(project) });
   return target;
 }
 
@@ -20,5 +20,6 @@ export async function openProject() {
     filters: [{ name: "LumaRig Studio Project", extensions: ["lumarigstudio"] }]
   });
   if (!path || Array.isArray(path)) return null;
-  return { path, project: parseProject(await readTextFile(path)) };
+  const raw = await invoke<string>("project_read", { path });
+  return { path, project: parseProject(raw) };
 }
