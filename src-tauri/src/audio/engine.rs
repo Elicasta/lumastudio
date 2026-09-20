@@ -800,6 +800,44 @@ mod tests {
     }
 
     #[test]
+    fn routes_guide_bus_to_independent_hardware_channels() {
+        let state = RealtimeState::new();
+        state.guide_bus.set_gain_db(0.0);
+        state.guide_bus.set_output_pair(2, 3);
+
+        state.mix.store(Arc::new(SongMix::new(vec![
+            PcmTrack {
+                id: "music".into(),
+                name: "Music".into(),
+                samples: Arc::from(vec![0.2, 0.3]),
+                start_frame: 0,
+                bus: TrackBus::Music,
+                control: Arc::new(TrackControl::new(0.0)),
+            },
+            PcmTrack {
+                id: "guide".into(),
+                name: "Guide".into(),
+                samples: Arc::from(vec![0.6, 0.7]),
+                start_frame: 0,
+                bus: TrackBus::Guide,
+                control: Arc::new(TrackControl::new(0.0)),
+            },
+        ])));
+        state.transport.play();
+
+        let mut output = vec![0.0_f32; 4];
+        render(
+            &mut output,
+            4,
+            48_000,
+            &state,
+            &mut GuideRenderer::default(),
+        );
+
+        assert_eq!(output, vec![0.2, 0.3, 0.6, 0.7]);
+    }
+
+    #[test]
     fn solo_excludes_non_solo_tracks() {
         let state = RealtimeState::new();
 
