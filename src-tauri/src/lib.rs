@@ -13,6 +13,8 @@ pub fn run() {
             audio::audio_initialize,
             audio::audio_status,
             audio::audio_load_wav_song,
+            audio::audio_load_voice_pack,
+            audio::audio_set_guide_timeline,
             audio::audio_play,
             audio::audio_pause,
             audio::audio_stop,
@@ -23,6 +25,8 @@ pub fn run() {
             audio::audio_set_track_muted,
             audio::audio_set_track_solo,
             audio::audio_schedule_transition,
+            audio::audio_set_bus_gain,
+            audio::audio_set_bus_muted,
             audio::audio_cancel_transition
         ])
         .run(tauri::generate_context!())
