@@ -5,6 +5,7 @@ mod meter;
 mod model;
 mod service;
 mod transport;
+mod transition;
 
 use serde_json::Value;
 use tauri::State;
@@ -112,4 +113,38 @@ pub fn audio_set_track_solo(
     service
         .set_track_solo(&id, solo)
         .map_err(|error| error.to_string())
+}
+
+
+#[tauri::command]
+pub fn audio_schedule_transition(
+    target_seconds: f64,
+    delay_seconds: f64,
+    first_count_delay_seconds: f64,
+    beat_seconds: f64,
+    count_beats: u64,
+    keep_audio: bool,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    let status = service
+        .schedule_transition(
+            target_seconds,
+            delay_seconds,
+            first_count_delay_seconds,
+            beat_seconds,
+            count_beats,
+            keep_audio,
+        )
+        .map_err(|error| error.to_string())?;
+    value(status)
+}
+
+#[tauri::command]
+pub fn audio_cancel_transition(
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    let status = service
+        .cancel_transition()
+        .map_err(|error| error.to_string())?;
+    value(status)
 }
