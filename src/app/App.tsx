@@ -122,8 +122,13 @@ export function App() {
     try {
       while (presentationQueueRef.current.length > 0) {
         const action = presentationQueueRef.current.shift();
-        if (action === "next") await proPresenter.next();
-        if (action === "previous") await proPresenter.previous();
+        try {
+          if (action === "next") await proPresenter.next();
+          if (action === "previous") await proPresenter.previous();
+        } catch {
+          presentationQueueRef.current = [];
+          break;
+        }
       }
     } finally {
       presentationQueueDrainingRef.current = false;
