@@ -17,6 +17,7 @@ import {
   type PlanningCenterPlanSummary,
   type PlanningCenterServiceType
 } from "../services/planningCenter";
+import { discoverLumaLinkNodes, type LumaLinkNode } from "../services/lumalink";
 
 export function IntegrationsPage({
   settings,
@@ -42,6 +43,9 @@ export function IntegrationsPage({
   const [keepUnmatched, setKeepUnmatched] = useState(true);
   const [pcoBusy, setPcoBusy] = useState(false);
   const [pcoError, setPcoError] = useState("");
+  const [lumaLinkNodes, setLumaLinkNodes] = useState<LumaLinkNode[]>([]);
+  const [networkBusy, setNetworkBusy] = useState(false);
+  const [networkError, setNetworkError] = useState("");
 
   const pp = settings.propresenter;
   const presenterSongMatches = useMemo(() => {
@@ -55,6 +59,22 @@ export function IntegrationsPage({
       ...settings,
       propresenter: { ...pp, ...patch }
     });
+  }
+
+  async function discoverNetworkNodes() {
+    setNetworkBusy(true);
+    setNetworkError("");
+    try {
+      const nodes = await discoverLumaLinkNodes(1100);
+      setLumaLinkNodes(nodes);
+      if (nodes.length === 0) {
+        setNetworkError("No LumaLink nodes answered on this network. Make sure LumaLink is running on the other computer and both machines are on the same LAN.");
+      }
+    } catch (cause) {
+      setNetworkError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setNetworkBusy(false);
+    }
   }
 
   async function connectPlanningCenter() {
@@ -125,16 +145,52 @@ export function IntegrationsPage({
             <div>
               <small>PRESENTATION</small>
               <h2>ProPresenter</h2>
-              <p>Bidirectional local API connection. MIDI remains available as a fallback.</p>
+              <p>Bidirectional API connection on the same computer or across the LAN. MIDI remains available as a fallback.</p>
             </div>
             <span className={proPresenter.state.connected ? "integration-status ready" : "integration-status"}>
               {proPresenter.state.connected ? "CONNECTED" : pp.enabled ? "OFFLINE" : "DISABLED"}
             </span>
           </div>
 
+          <div className="network-connect-row">
+            <button onClick={() => patchProPresenter({ host: "127.0.0.1", port: 50001 })}>
+              This Computer
+            </button>
+            <button onClick={() => void discoverNetworkNodes()} disabled={networkBusy}>
+              {networkBusy ? "Searching…" : "Find LumaLink on Network"}
+            </button>
+            <span>Use this when Studio and ProPresenter are on different computers.</span>
+          </div>
+
+          {networkError && <div className="integration-warning">{networkError}</div>}
+
+          {lumaLinkNodes.length > 0 && (
+            <div className="lumalink-node-list">
+              {lumaLinkNodes.map((node) => (
+                <div className="lumalink-node" key={`${node.address}-${node.nodeName}`}>
+                  <div>
+                    <small>LUMALINK NODE</small>
+                    <strong>{node.nodeName}</strong>
+                    <span>{node.address} · {node.platform.toUpperCase()} · LumaLink {node.appVersion}</span>
+                  </div>
+                  <button
+                    className="primary"
+                    onClick={() => patchProPresenter({
+                      host: node.address,
+                      port: node.suggestedProPresenterPort || 50001,
+                      enabled: true
+                    })}
+                  >
+                    Use
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
           <div className="integration-fields">
             <label>
-              <span>Host</span>
+              <span>Host / Network IP</span>
               <input
                 value={pp.host}
                 onChange={(event) => patchProPresenter({ host: event.currentTarget.value })}
@@ -224,7 +280,7 @@ export function IntegrationsPage({
           </div>
 
           <p className="integration-footnote">
-            In ProPresenter, enable Network/API access and use the port shown there. The default is 50001.
+            In ProPresenter, enable Network/API access and use the port shown there. The default is 50001. For a Windows FOH computer, LumaLink discovery can find the machine for you; slide commands still go directly to ProPresenter so LumaLink is not a live-control dependency.
           </p>
         </div>
 
