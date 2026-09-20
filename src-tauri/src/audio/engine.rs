@@ -686,6 +686,7 @@ mod tests {
             name: "Test".into(),
             samples: Arc::from(samples),
             start_frame: 0,
+            bus: TrackBus::Music,
             control: Arc::new(TrackControl::new(0.0)),
         }])));
         state.transport.play();
@@ -738,6 +739,7 @@ mod tests {
                 name: "Solo".into(),
                 samples: Arc::from(vec![0.2, 0.2]),
                 start_frame: 0,
+                bus: TrackBus::Music,
                 control: solo,
             },
             PcmTrack {
@@ -745,6 +747,7 @@ mod tests {
                 name: "Other".into(),
                 samples: Arc::from(vec![0.8, 0.8]),
                 start_frame: 0,
+                bus: TrackBus::Music,
                 control: Arc::new(TrackControl::new(0.0)),
             },
         ])));
