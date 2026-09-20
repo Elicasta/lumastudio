@@ -57,6 +57,10 @@ import { checkForAppUpdate } from "../services/updater";
 import { useAudioEngine, type AudioEngineController } from "../hooks/useAudioEngine";
 import type { NativeAudioStatus, NativeAudioTrack } from "../services/audio";
 import { choosePadAudio, configureNativePad, loadNativePad, releaseNativePad, stopNativePad, triggerNativePad, type PadSlot } from "../services/pads";
+import { IntegrationsPage } from "../components/IntegrationsPage";
+import { defaultIntegrationSettings } from "../domain/integrations";
+import { useProPresenter } from "../hooks/useProPresenter";
+import type { PlanningCenterPlanImport } from "../services/planningCenter";
 
 const workspaceNav: Array<{ page: Workspace; label: string; icon: typeof Music2 }> = [
   { page: "import", label: "Import", icon: Upload },
@@ -77,6 +81,7 @@ const buildNav: Array<{ tool: BuildTool; label: string; icon: typeof Music2 }> =
 const showNav: Array<{ tool: ShowTool; label: string; icon: typeof Music2 }> = [
   { tool: "setlist", label: "Setlist", icon: ListMusic },
   { tool: "connections", label: "Connections", icon: Cable },
+  { tool: "integrations", label: "Integrations", icon: Radio },
   { tool: "settings", label: "Settings", icon: Settings }
 ];
 
@@ -96,6 +101,8 @@ export function App() {
   const [currentSection, setCurrentSection] = useState(4);
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const audio = useAudioEngine();
+  const integrationSettings = project.integrations ?? defaultIntegrationSettings();
+  const proPresenter = useProPresenter(integrationSettings.propresenter, selectedSong, currentSection);
   const lastDispatchedSectionRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -538,6 +545,30 @@ export function App() {
     }
   }
 
+  function applyPlanningCenterImport(value: PlanningCenterPlanImport) {
+    const firstSong = value.songs[0];
+    setProject((current) => ({
+      ...current,
+      name: value.link.planDates || value.link.planTitle || current.name,
+      setlist: {
+        ...current.setlist,
+        name: value.link.planDates || value.link.planTitle || current.setlist.name,
+        songs: value.songs
+      },
+      selectedSongId: firstSong?.id,
+      integrations: {
+        ...(current.integrations ?? defaultIntegrationSettings()),
+        planningCenter: value.link
+      },
+      updatedAt: new Date().toISOString()
+    }));
+    if (firstSong) {
+      setSelectedSong(firstSong);
+      setCurrentSection(0);
+      setQueuedManualSection(null);
+    }
+  }
+
   function applyNativeTracks(
     tracks: NativeAudioTrack[],
     status: NativeAudioStatus
@@ -625,6 +656,20 @@ export function App() {
                 />
               )}
               {showTool === "connections" && <Connections audio={audio} remote={remote} lumarig={lumarig} song={selectedSong} onSongChange={setSelectedSong} />}
+              {showTool === "integrations" && (
+                <IntegrationsPage
+                  settings={integrationSettings}
+                  proPresenter={proPresenter}
+                  selectedSong={selectedSong}
+                  existingSongs={project.setlist.songs}
+                  onSettingsChange={(integrations) => setProject((current) => ({
+                    ...current,
+                    integrations,
+                    updatedAt: new Date().toISOString()
+                  }))}
+                  onPlanningCenterImport={applyPlanningCenterImport}
+                />
+              )}
               {showTool === "settings" && (
                 <>
                   <SettingsPage audio={audio} />
