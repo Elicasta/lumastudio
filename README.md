@@ -84,7 +84,23 @@ Manual Section controls are overrides:
 - no-count jumps remain beat-quantized rather than cutting at a random sample
 - detected downbeat offset anchors the musical grid without trimming source media
 
-Count-in clicks are currently generated inside the native audio engine. The reusable spoken Guide vocabulary, phrase planner, voice-pack validator, and recording contract are now defined. Dedicated native Guide-bus sample playback/output routing is the next audio step.
+Count-in clicks and reusable spoken Guide tokens are now scheduled by the native audio engine. Music, Click, Guide and Master have independent gain/mute stages; Music, Click and Guide can be routed to separate hardware output channels on the active device. Imported Click/Guide stems and generated cues use the same buses.
 
 See [Guide Voice System](./docs/GUIDE_VOICE_SYSTEM.md) and [Voice Pack Recording Script](./docs/VOICE_PACK_RECORDING_SCRIPT.md).
 
+
+## Local Guide voice testing
+
+On macOS, generate a complete 44-token development voice pack from an installed system voice:
+
+```bash
+npm run voice:dev
+```
+
+Or choose another macOS voice:
+
+```bash
+npm run voice:dev -- --voice Daniel --id dev-en-daniel
+```
+
+Generated packs are ignored by Git and are for local testing. In Studio, open **Devices → Guide Voice → Load Voice Pack** and select the generated folder. Production packs should use recorded/approved audio and the same manifest contract.
