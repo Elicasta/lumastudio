@@ -1947,7 +1947,9 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
   });
   const pad = pads[active];
 
-  useEffect(() => { onChange(pads, padCount); }, [pads, padCount]);
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  useEffect(() => { onChangeRef.current(pads, padCount); }, [pads, padCount]);
 
   useEffect(() => () => { for (let index = 0; index < 16; index += 1) void stopNativePad(index); }, []);
 
