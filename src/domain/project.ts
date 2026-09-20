@@ -9,6 +9,12 @@ export interface StudioProject {
   setlist: Setlist;
   selectedSongId?: string;
   updatedAt: string;
+  lightingBindings?: Record<string, {
+    lumarigShowId: string;
+    songId: string;
+    songTitle: string;
+    updatedAt: string;
+  }>;
 }
 
 export function createProject(name: string, songs: Song[] = []): StudioProject {
@@ -19,7 +25,8 @@ export function createProject(name: string, songs: Song[] = []): StudioProject {
     name,
     setlist: { id: crypto.randomUUID(), name, songs },
     selectedSongId: songs[0]?.id,
-    updatedAt: new Date().toISOString()
+    updatedAt: new Date().toISOString(),
+    lightingBindings: {}
   };
 }
 
