@@ -1976,6 +1976,11 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
     try {
       setError("");
       if (!slot.path) throw new Error("Load audio into this pad first.");
+      if (slot.mode === "latch" && playing.has(slot.id)) {
+        await releaseNativePad(index);
+        setPlaying((current) => { const next = new Set(current); next.delete(slot.id); return next; });
+        return;
+      }
       await loadNativePad(index, slot);
       await triggerNativePad(index);
       setPlaying((current) => new Set(current).add(slot.id));
@@ -2028,10 +2033,10 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
           <small>PAD {active + 1}</small>
           <h2>{pad.name}</h2>
           <Waveform seed={active} color="#fbbf24" />
-          <label><span>Mode</span><select value={pad.mode} onChange={(e) => updatePad({ mode: e.currentTarget.value as PadSlot["mode"] })}>
+          <label><span>Mode</span><select value={pad.mode} onChange={(e) => { const next = { ...pad, mode: e.currentTarget.value as PadSlot["mode"] }; updatePad({ mode: next.mode }); if (next.path) void loadNativePad(active, next); }}>
             <option value="one-shot">One Shot</option><option value="loop">Loop</option><option value="hold">Hold</option><option value="latch">Latch</option>
           </select></label>
-          <label><span>Octave</span><input type="range" min="-2" max="2" step="1" value={pad.octave} onChange={(e) => updatePad({ octave: Number(e.currentTarget.value) })} /><strong>{pad.octave > 0 ? "+" : ""}{pad.octave}</strong></label>
+          <label><span>Octave</span><input type="range" min="-2" max="2" step="1" value={pad.octave} onChange={(e) => { const next = { ...pad, octave: Number(e.currentTarget.value) }; updatePad({ octave: next.octave }); if (next.path) void loadNativePad(active, next); }} /><strong>{pad.octave > 0 ? "+" : ""}{pad.octave}</strong></label>
           <label><span>Wideness</span><input type="range" min="0" max="100" value={pad.width} onChange={(e) => { const next = { ...pad, width: Number(e.currentTarget.value) }; updatePad({ width: next.width }); void configureNativePad(active, next); }} /><strong>{pad.width}%</strong></label>
           <label><span>Volume</span><input type="range" min="-60" max="6" step=".5" value={pad.gainDb} onChange={(e) => { const next = { ...pad, gainDb: Number(e.currentTarget.value) }; updatePad({ gainDb: next.gainDb }); void configureNativePad(active, next); }} /><strong>{pad.gainDb.toFixed(1)} dB</strong></label>
           <label><span>Attack</span><input type="range" min="0" max="2000" step="10" value={pad.attackMs} onChange={(e) => { const next = { ...pad, attackMs: Number(e.currentTarget.value) }; updatePad({ attackMs: next.attackMs }); void configureNativePad(active, next); }} /><strong>{(pad.attackMs / 1000).toFixed(2)} s</strong></label>
