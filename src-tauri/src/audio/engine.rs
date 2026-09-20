@@ -61,7 +61,7 @@ impl RealtimeState {
             guide_bus: BusControl::new(-3.0),
             master_bus: BusControl::new(0.0),
             pad_bus: BusControl::new(0.0),
-            pads: (0..12).map(|_| PadVoice::new()).collect(),
+            pads: (0..16).map(|_| PadVoice::new()).collect(),
             device_error: AtomicBool::new(false),
         }
     }
@@ -167,26 +167,30 @@ impl AudioEngine {
     }
 
     pub fn load_pad(&self, index: usize, sample: PadSample) -> Result<(), AudioError> {
-        let voice = self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-12".into()))?;
+        let voice = self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?;
         voice.sample.store(Arc::new(sample));
         voice.stop();
         Ok(())
     }
 
     pub fn trigger_pad(&self, index: usize) -> Result<(), AudioError> {
-        self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-12".into()))?.trigger();
+        self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?.trigger();
         Ok(())
     }
+
+    pub fn release_pad(&self, index: usize) -> Result<(), AudioError> { self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?.release(); Ok(()) }
 
     pub fn stop_pad(&self, index: usize) -> Result<(), AudioError> {
-        self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-12".into()))?.stop();
+        self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?.stop();
         Ok(())
     }
 
-    pub fn configure_pad(&self, index: usize, gain_db: f32, width: f32) -> Result<(), AudioError> {
-        let voice = self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-12".into()))?;
+    pub fn configure_pad(&self, index: usize, gain_db: f32, width: f32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> {
+        let voice = self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?;
         voice.gain.store(if gain_db <= -90.0 { 0.0 } else { 10.0_f32.powf(gain_db.clamp(-90.0, 12.0) / 20.0) });
         voice.width.store(width.clamp(0.0, 2.0));
+        voice.attack_frames.store((attack_ms as f64 * self.sample_rate as f64 / 1000.0) as u64, Ordering::Relaxed);
+        voice.release_frames.store((release_ms as f64 * self.sample_rate as f64 / 1000.0) as u64, Ordering::Relaxed);
         Ok(())
     }
 
