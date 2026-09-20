@@ -195,7 +195,7 @@ export function planAutomaticSectionCue(
     totalCountPulses: pulsesPerBar,
     pulsesPerBar,
     announceSection: true,
-    voiceFinalBarOnly: true
+    voiceFinalBarOnly: song.guideVoice.voiceFinalBarOnly
   });
 }
 
@@ -220,8 +220,8 @@ export function planSongStartGuide(song: Song): GuideCuePlan {
     destination: firstSection,
     totalCountPulses,
     pulsesPerBar,
-    announceSection: true,
-    voiceFinalBarOnly: true
+    announceSection: song.guideVoice.announceFirstSection,
+    voiceFinalBarOnly: song.guideVoice.voiceFinalBarOnly
   });
 }
 
