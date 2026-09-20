@@ -12,6 +12,10 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             audio::audio_initialize,
+            audio::audio_load_pad,
+            audio::audio_trigger_pad,
+            audio::audio_stop_pad,
+            audio::audio_configure_pad,
             audio::audio_status,
             audio::audio_load_wav_song,
             audio::audio_load_voice_pack,
