@@ -234,9 +234,24 @@ export function mapPlanningCenterPlan(
       || normalized(song.title) === normalized(incoming.title)
     );
 
-    if (existing) {
+    if (existing && !matchedExistingIds.has(existing.id)) {
       matchedExistingIds.add(existing.id);
       mappedSongs.push(mergeExistingSong(existing, incoming));
+    } else if (existing) {
+      const repeated = mergeExistingSong(existing, incoming);
+      mappedSongs.push({
+        ...repeated,
+        id: crypto.randomUUID(),
+        tracks: repeated.tracks.map((track) => ({ ...track })),
+        sections: repeated.sections.map((section) => ({ ...section })),
+        guideMarkers: repeated.guideMarkers.map((marker) => ({ ...marker })),
+        presentation: repeated.presentation
+          ? {
+              ...repeated.presentation,
+              cues: repeated.presentation.cues.map((cue) => ({ ...cue }))
+            }
+          : undefined
+      });
     } else {
       mappedSongs.push(incoming);
     }
