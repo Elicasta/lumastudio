@@ -2,6 +2,14 @@ use std::{path::Path, sync::Arc};
 
 use audioadapter_buffers::owned::InterleavedOwned;
 use rubato::{Fft, FixedSync, Resampler};
+use symphonia::core::{
+    audio::{SampleBuffer, Signal},
+    codecs::DecoderOptions,
+    formats::FormatOptions,
+    io::MediaSourceStream,
+    meta::MetadataOptions,
+    probe::Hint,
+};
 
 use super::{
     error::AudioError,
@@ -22,7 +30,7 @@ pub fn load_wav_track(
     request: &WavTrackRequest,
     target_sample_rate: u32,
 ) -> Result<PcmTrack, AudioError> {
-    let (samples, source_sample_rate) = read_wav_stereo(Path::new(&request.path))?;
+    let (samples, source_sample_rate) = read_audio_stereo(Path::new(&request.path))?;
     let samples = if source_sample_rate == target_sample_rate {
         samples
     } else {
@@ -37,6 +45,60 @@ pub fn load_wav_track(
         bus: request.bus,
         control: Arc::new(TrackControl::new(request.gain_db)),
     })
+}
+
+
+pub(crate) fn read_audio_stereo(path: &Path) -> Result<(Vec<f32>, u32), AudioError> {
+    match path.extension().and_then(|value| value.to_str()).unwrap_or("").to_ascii_lowercase().as_str() {
+        "wav" | "wave" => read_wav_stereo(path),
+        "mp3" | "aif" | "aiff" => read_symphonia_stereo(path),
+        extension => Err(AudioError::OpenFile(format!("unsupported audio format: {extension}"))),
+    }
+}
+
+fn read_symphonia_stereo(path: &Path) -> Result<(Vec<f32>, u32), AudioError> {
+    let file = std::fs::File::open(path).map_err(|error| AudioError::OpenFile(error.to_string()))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|value| value.to_str()) { hint.with_extension(ext); }
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .map_err(|error| AudioError::OpenFile(error.to_string()))?;
+    let mut format = probed.format;
+    let track = format.default_track().ok_or_else(|| AudioError::OpenFile("audio file has no default track".into()))?;
+    let track_id = track.id;
+    let mut decoder = symphonia::default::get_codecs()
+        .make(&track.codec_params, &DecoderOptions::default())
+        .map_err(|error| AudioError::OpenFile(error.to_string()))?;
+    let mut sample_rate = track.codec_params.sample_rate.unwrap_or(44_100);
+    let mut stereo = Vec::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(symphonia::core::errors::Error::IoError(error))
+                if error.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(error) => return Err(AudioError::OpenFile(error.to_string())),
+        };
+        if packet.track_id() != track_id { continue; }
+        let decoded = match decoder.decode(&packet) {
+            Ok(decoded) => decoded,
+            Err(symphonia::core::errors::Error::DecodeError(_)) => continue,
+            Err(error) => return Err(AudioError::OpenFile(error.to_string())),
+        };
+        sample_rate = decoded.spec().rate;
+        let channels = decoded.spec().channels.count();
+        if channels == 0 { continue; }
+        let mut converted = SampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
+        converted.copy_interleaved_ref(decoded);
+        for frame in converted.samples().chunks(channels) {
+            let left = frame[0];
+            let right = if channels > 1 { frame[1] } else { left };
+            stereo.extend_from_slice(&[left, right]);
+        }
+    }
+    if stereo.is_empty() { return Err(AudioError::EmptyFile); }
+    Ok((stereo, sample_rate))
 }
 
 pub(crate) fn read_wav_stereo(path: &Path) -> Result<(Vec<f32>, u32), AudioError> {

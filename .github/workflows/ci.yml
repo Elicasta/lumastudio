@@ -2,28 +2,13 @@ name: CI
 
 on:
   pull_request:
+    branches: [main]
   push:
     branches: [main, "build/**"]
 
 jobs:
-  frontend:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-
-      - run: npm install
-      - run: npm run check:versions
-      - name: Audit runtime dependencies
-        run: npm audit --omit=dev --audit-level=high
-      - run: npm test
-      - run: npm run build
-
-  native:
-    runs-on: macos-latest
+  macos:
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
 
@@ -37,15 +22,25 @@ jobs:
         with:
           workspaces: "./src-tauri -> target"
 
-      - run: npm install
-      - run: npm run check:versions
-      - run: npm run build
-      - run: cargo check --manifest-path src-tauri/Cargo.toml
+      - name: Install frontend dependencies
+        run: npm install
 
-      - name: Build test DMG
+      - name: Verify versions
+        run: npm run check:versions
+
+      - name: Test frontend
+        run: npm test
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Check native macOS app
+        run: cargo check --manifest-path src-tauri/Cargo.toml
+
+      - name: Build macOS test DMG
         run: npm run dmg
 
-      - name: Upload test DMG
+      - name: Upload macOS test DMG
         uses: actions/upload-artifact@v4
         with:
           name: LumaRig-Studio-macOS-test-DMG

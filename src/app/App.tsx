@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Activity,
   AudioLines,
@@ -22,8 +22,19 @@ import {
   WandSparkles
 } from "lucide-react";
 import { demoSetlist, goodness } from "../domain/demo";
-import type { CountInSettings, ImportStep, Page, Song } from "../domain/types";
+import { createProject } from "../domain/project";
+import { openProject, saveProject } from "../services/projectStore";
+import { chooseLocalVideo, createYouTubeClip } from "../services/video";
+import type { VideoClip, VideoProgram, VideoProgramState } from "../domain/video";
+import { VideoProgram as VideoProgramRenderer } from "../components/VideoProgram";
+import { fullscreenVideoOutput, openVideoOutput } from "../services/videoOutput";
+import { listenVideoOutputRequests, publishVideoOutputState } from "../services/videoOutputState";
+import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
+import { sectionCueDispatch } from "../domain/cues";
+import { dispatchSectionCue } from "../services/cueDispatcher";
+import { connectMidiOutput, disconnectMidiOutput, listMidiOutputs, sendControlChange, sendMidiPatch, sendProgramChange, type MidiPort } from "../services/midi";
+import type { MidiSettings } from "../domain/midi";
 import {
   buildAutomaticGuideTimeline,
   countPulseForSection,
@@ -38,25 +49,35 @@ import {
   sectionStartSeconds
 } from "../domain/timing";
 import { useRemoteRelay } from "../hooks/useRemoteRelay";
+import { useLumaRig } from "../hooks/useLumaRig";
+import { loopbackLumaRigPeer } from "../lumarig/discovery";
 import type { RemoteCommandEnvelope } from "../remote/protocol";
 import { buildRemoteStudioState } from "../remote/state";
 import { checkForAppUpdate } from "../services/updater";
 import { useAudioEngine, type AudioEngineController } from "../hooks/useAudioEngine";
 import type { NativeAudioStatus, NativeAudioTrack } from "../services/audio";
+import { choosePadAudio, configureNativePad, loadNativePad, releaseNativePad, stopNativePad, triggerNativePad, type PadSlot } from "../services/pads";
 
-const nav: Array<{ page: Page; label: string; icon: typeof Music2 }> = [
-  { page: "setlist", label: "Setlist", icon: ListMusic },
-  { page: "songs", label: "Songs", icon: Music2 },
-  { page: "arrangement", label: "Arrangement", icon: AudioLines },
-  { page: "performance", label: "Performance", icon: Play },
-  { page: "pads", label: "Pads", icon: Grid2X2 },
-  { page: "mixer", label: "Mixer", icon: SlidersHorizontal },
-  { page: "lighting", label: "Lighting", icon: Lightbulb },
-  { page: "midi", label: "MIDI", icon: Radio },
-  { page: "video", label: "Video", icon: Clapperboard },
-  { page: "sources", label: "Sources", icon: Upload },
-  { page: "connections", label: "Devices", icon: Cable },
-  { page: "settings", label: "Settings", icon: Settings }
+const workspaceNav: Array<{ page: Workspace; label: string; icon: typeof Music2 }> = [
+  { page: "import", label: "Import", icon: Upload },
+  { page: "build", label: "Build", icon: WandSparkles },
+  { page: "show", label: "Show", icon: ListMusic },
+  { page: "live", label: "Live", icon: Play }
+];
+
+const buildNav: Array<{ tool: BuildTool; label: string; icon: typeof Music2 }> = [
+  { tool: "arrangement", label: "Arrangement", icon: AudioLines },
+  { tool: "mixer", label: "Mixer", icon: SlidersHorizontal },
+  { tool: "pads", label: "Pads", icon: Grid2X2 },
+  { tool: "lighting", label: "Lighting", icon: Lightbulb },
+  { tool: "midi", label: "MIDI", icon: Radio },
+  { tool: "video", label: "Video / NDI", icon: Clapperboard }
+];
+
+const showNav: Array<{ tool: ShowTool; label: string; icon: typeof Music2 }> = [
+  { tool: "setlist", label: "Setlist", icon: ListMusic },
+  { tool: "connections", label: "Connections", icon: Cable },
+  { tool: "settings", label: "Settings", icon: Settings }
 ];
 
 function fmt(seconds: number) {
@@ -64,13 +85,40 @@ function fmt(seconds: number) {
 }
 
 export function App() {
-  const [page, setPage] = useState<Page>("setlist");
+  const [page, setPage] = useState<Page>("show");
+  const [buildTool, setBuildTool] = useState<BuildTool>("arrangement");
+  const [showTool, setShowTool] = useState<ShowTool>("setlist");
+  const [project, setProject] = useState(() => createProject("Sunday Set", demoSetlist.songs));
+  const [projectPath, setProjectPath] = useState<string | undefined>();
   const [selectedSong, setSelectedSong] = useState<Song>(goodness);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [currentSection, setCurrentSection] = useState(4);
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const audio = useAudioEngine();
+  const lastDispatchedSectionRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    void publishVideoOutputState({
+      program: project.video,
+      positionSeconds: audio.status.positionSeconds ?? 0,
+      playing: Boolean(audio.status.playing || previewPlaying),
+      sectionId: selectedSong.sections[currentSection]?.id
+    }).catch(() => undefined);
+  }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong.sections, currentSection]);
+
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void listenVideoOutputRequests(() => {
+      void publishVideoOutputState({
+        program: project.video,
+        positionSeconds: audio.status.positionSeconds ?? 0,
+        playing: Boolean(audio.status.playing || previewPlaying),
+        sectionId: selectedSong.sections[currentSection]?.id
+      });
+    }).then((unlisten) => { stop = unlisten; });
+    return () => stop?.();
+  }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong.sections, currentSection]);
 
   const selectSetlistSong = useCallback(
     async (song: Song) => {
@@ -80,6 +128,7 @@ export function App() {
       setPreviewPlaying(false);
       setQueuedManualSection(null);
       setSelectedSong(song);
+      setProject((current) => ({ ...current, selectedSongId: song.id, updatedAt: new Date().toISOString() }));
       setCurrentSection(0);
     },
     [audio.hasLoadedAudio, audio.stop]
@@ -322,7 +371,7 @@ export function App() {
         case "song.previous": {
           const direction = message.command === "song.next" ? 1 : -1;
           const song = adjacentSong(
-            demoSetlist,
+            project.setlist,
             selectedSong.id,
             direction as -1 | 1
           );
@@ -337,7 +386,7 @@ export function App() {
 
         case "song.select": {
           const id = String(message.payload?.id ?? "");
-          const song = demoSetlist.songs.find((item) => item.id === id);
+          const song = project.setlist.songs.find((item) => item.id === id);
           if (!song) return reject("Song not found in the active Setlist.");
           await selectSetlistSong(song);
           return ok();
@@ -420,24 +469,74 @@ export function App() {
       audio.tracks,
       selectSetlistSong,
       selectedSong.id,
-      selectedSong.sections
+      selectedSong.sections,
+      project.setlist
     ]
   );
 
   const remoteState = useMemo(
     () =>
       buildRemoteStudioState({
-        setlist: demoSetlist,
+        setlist: project.setlist,
         song: selectedSong,
         currentSectionIndex: currentSection,
         previewPlaying,
         audioStatus: audio.status,
         queuedSectionIndex: queuedManualSection
       }),
-    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong]
+    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong, project.setlist]
   );
 
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
+  const lumarig = useLumaRig();
+
+  useEffect(() => {
+    const section = selectedSong.sections[currentSection];
+    if (!section) return;
+    const key = selectedSong.id + ":" + section.id;
+    if (lastDispatchedSectionRef.current === key) return;
+    lastDispatchedSectionRef.current = key;
+    const cue = sectionCueDispatch(selectedSong, section);
+    void dispatchSectionCue(cue, {
+      video: project.video,
+      sendMidiPatch,
+      midiConnected: Boolean(project.midi?.outputName),
+      sendLumaRig: lumarig.state === "connected" ? (command) => lumarig.send(command) : undefined
+    });
+  }, [selectedSong, currentSection, project.video, lumarig.state, lumarig.send]);
+
+  useEffect(() => {
+    setProject((current) => ({
+      ...current,
+      selectedSongId: selectedSong.id,
+      updatedAt: new Date().toISOString(),
+      setlist: {
+        ...current.setlist,
+        songs: current.setlist.songs.some((song) => song.id === selectedSong.id)
+          ? current.setlist.songs.map((song) => song.id === selectedSong.id ? selectedSong : song)
+          : [...current.setlist.songs, selectedSong]
+      }
+    }));
+  }, [selectedSong]);
+
+  async function saveCurrentProject(saveAs = false) {
+    const path = await saveProject(project, saveAs ? undefined : projectPath);
+    if (path) setProjectPath(path);
+  }
+
+  async function openStudioProject() {
+    const opened = await openProject();
+    if (!opened) return;
+    setProject(opened.project);
+    setProjectPath(opened.path);
+    const song = opened.project.setlist.songs.find((item) => item.id === opened.project.selectedSongId)
+      ?? opened.project.setlist.songs[0];
+    if (song) {
+      setSelectedSong(song);
+      setCurrentSection(0);
+      setQueuedManualSection(null);
+    }
+  }
 
   function applyNativeTracks(
     tracks: NativeAudioTrack[],
@@ -481,37 +580,71 @@ export function App() {
           onStop={stopPlayback}
         />
         <div className="workspace">
-          {page === "setlist" && (
-            <SetlistPage
-              selected={selectedSong}
-              audio={audio}
-              onSelect={(song) => void selectSetlistSong(song)}
-              onOpenArrangement={() => setPage("arrangement")}
-              onImport={() => setImportOpen(true)}
-              onSongChange={setSelectedSong}
-              onStart={startPlayback}
-              onPause={pausePlayback}
-            />
+          {page === "import" && (
+            <Sources audio={audio} onLoaded={(tracks, status) => {
+              applyNativeTracks(tracks, status);
+              setBuildTool("arrangement");
+              setPage("build");
+            }} />
           )}
-          {page === "songs" && (
-            <SongsPage
-              selected={selectedSong}
-              onSelect={(song) => void selectSetlistSong(song)}
-              onOpenArrangement={() => setPage("arrangement")}
-              onImport={() => setImportOpen(true)}
-            />
+
+          {page === "build" && (
+            <>
+              <ToolRail
+                items={buildNav}
+                active={buildTool}
+                onSelect={setBuildTool}
+              />
+              {buildTool === "arrangement" && <Arrangement song={selectedSong} onSongChange={setSelectedSong} />}
+              {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
+              {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
+              {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
+              {buildTool === "midi" && <MidiEditor settings={project.midi ?? { channel: 1 }} sections={selectedSong.sections} onSettingsChange={(midi) => setProject((current) => ({ ...current, midi, updatedAt: new Date().toISOString() }))} onSectionsChange={(sections) => { const song = { ...selectedSong, sections }; setSelectedSong(song); setProject((current) => ({ ...current, setlist: { ...current.setlist, songs: current.setlist.songs.map((item) => item.id === song.id ? song : item) }, updatedAt: new Date().toISOString() })); }} />}
+              {buildTool === "video" && <VideoEditor program={project.video} sections={selectedSong.sections} positionSeconds={audio.status.positionSeconds ?? 0} playing={Boolean(audio.status.playing || previewPlaying)} sectionId={selectedSong.sections[currentSection]?.id} onChange={(video) => setProject((current) => ({ ...current, video, updatedAt: new Date().toISOString() }))} />}
+            </>
           )}
-          {page === "arrangement" && (
-            <Arrangement
-              song={selectedSong}
-              onSongChange={setSelectedSong}
-            />
+
+          {page === "show" && (
+            <>
+              <ToolRail
+                items={showNav}
+                active={showTool}
+                onSelect={setShowTool}
+              />
+              {showTool === "setlist" && (
+                <SetlistPage
+                  selected={selectedSong}
+                  setlist={project.setlist}
+                  audio={audio}
+                  onSelect={(song) => void selectSetlistSong(song)}
+                  onOpenArrangement={() => { setBuildTool("arrangement"); setPage("build"); }}
+                  onImport={() => setPage("import")}
+                  onSongChange={setSelectedSong}
+                  onStart={startPlayback}
+                  onPause={pausePlayback}
+                />
+              )}
+              {showTool === "connections" && <Connections audio={audio} remote={remote} lumarig={lumarig} song={selectedSong} onSongChange={setSelectedSong} />}
+              {showTool === "settings" && (
+                <>
+                  <SettingsPage audio={audio} />
+                  <div className="panel project-actions">
+                    <strong>{project.name}</strong>
+                    <span>{projectPath ?? "Unsaved Studio Project"}</span>
+                    <button onClick={() => void openStudioProject()}>Open Project</button>
+                    <button onClick={() => void saveCurrentProject(false)}>Save Project</button>
+                    <button onClick={() => void saveCurrentProject(true)}>Save As…</button>
+                  </div>
+                </>
+              )}
+            </>
           )}
-          {page === "performance" && (
+
+          {page === "live" && (
             <Performance
               song={selectedSong}
               current={currentSection}
-              nextSong={adjacentSong(demoSetlist, selectedSong.id, 1)}
+              nextSong={adjacentSong(project.setlist, selectedSong.id, 1)}
               onNextSong={(song) => void selectSetlistSong(song)}
               remoteOnline={remote.status === "online"}
               remoteClients={remote.remoteClients}
@@ -520,41 +653,6 @@ export function App() {
               onLaunchSection={(index) => void launchSection(index)}
             />
           )}
-          {page === "pads" && <Pads />}
-          {page === "mixer" && <Mixer song={selectedSong} audio={audio} />}
-          {page === "lighting" && <Lighting song={selectedSong} />}
-          {page === "midi" && (
-            <UtilityPage
-              title="MIDI"
-              icon={Radio}
-              text="Patch changes, notes, CC automation, MIDI clock and device routing live here."
-            />
-          )}
-          {page === "video" && (
-            <UtilityPage
-              title="Video"
-              icon={Clapperboard}
-              text="Section-driven local video, backgrounds, playback cues and external video outputs."
-            />
-          )}
-          {page === "sources" && (
-            <Sources
-              audio={audio}
-              onLoaded={(tracks, status) => {
-                applyNativeTracks(tracks, status);
-                setPage("arrangement");
-              }}
-            />
-          )}
-          {page === "connections" && (
-            <Connections
-              audio={audio}
-              remote={remote}
-              song={selectedSong}
-              onSongChange={setSelectedSong}
-            />
-          )}
-          {page === "settings" && <SettingsPage audio={audio} />}
         </div>
       </main>
       {importOpen && (
@@ -563,7 +661,8 @@ export function App() {
           onNativeLoaded={(tracks, status) => {
             applyNativeTracks(tracks, status);
             setImportOpen(false);
-            setPage("arrangement");
+            setBuildTool("arrangement");
+            setPage("build");
           }}
           onClose={() => setImportOpen(false)}
         />
@@ -583,31 +682,124 @@ function Sidebar({
     <aside className="sidebar">
       <div className="brand">
         <div className="brand-mark">L</div>
-        <div>
-          <strong>LUMARIG</strong>
-          <span>STUDIO · BETA 0.2.0</span>
-        </div>
+        <div><strong>LUMARIG</strong><span>STUDIO · BETA 0.3</span></div>
       </div>
-      <nav>
-        {nav.map((item) => {
-          const Icon = item.icon;
-          return (
-            <button
-              key={item.page}
-              className={page === item.page ? "nav active" : "nav"}
-              onClick={() => onPage(item.page)}
-            >
-              <Icon size={17} />
-              <span>{item.label}</span>
-            </button>
-          );
-        })}
+      <nav className="workspace-nav">
+        {workspaceNav.map(({ page: target, label, icon: Icon }) => (
+          <button key={target} className={page === target ? "active" : ""} onClick={() => onPage(target)}>
+            <Icon size={17} /><span>{label}</span>
+          </button>
+        ))}
       </nav>
-      <div className="sidebar-status">
-        <span className="dot ok" /> LumaRig Connected
-        <small>Audio · MIDI · Lighting ready</small>
-      </div>
+      <div className="sidebar-bottom"><span>WORKFLOW</span><strong>IMPORT → BUILD → SHOW → LIVE</strong></div>
     </aside>
+  );
+}
+
+function ToolRail<T extends string>({
+  items,
+  active,
+  onSelect
+}: {
+  items: Array<{ tool: T; label: string; icon: typeof Music2 }>;
+  active: T;
+  onSelect: (tool: T) => void;
+}) {
+  return (
+    <div className="tool-rail panel">
+      {items.map(({ tool, label, icon: Icon }) => (
+        <button key={tool} className={active === tool ? "active" : ""} onClick={() => onSelect(tool)}>
+          <Icon size={15} /> {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MidiEditor({ settings, sections, onSettingsChange, onSectionsChange }: { settings: MidiSettings; sections: Song["sections"]; onSettingsChange: (settings: MidiSettings) => void; onSectionsChange: (sections: Song["sections"]) => void }) {
+  const [ports, setPorts] = useState<MidiPort[]>([]);
+  const [connected, setConnected] = useState(false);
+  const [error, setError] = useState("");
+  const [testProgram, setTestProgram] = useState(0);
+  const refresh = useCallback(async () => { try { setPorts(await listMidiOutputs()); setError(""); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }, []);
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  async function connect(index: number) {
+    try { const name = await connectMidiOutput(index); onSettingsChange({ ...settings, outputIndex: index, outputName: name }); setConnected(true); setError(""); }
+    catch (e) { setConnected(false); setError(e instanceof Error ? e.message : String(e)); }
+  }
+  return <section className="midi-editor">
+    <div className="page-head"><div><h1>MIDI</h1><p>Route section changes and manual messages to hardware, IAC or virtual MIDI destinations.</p></div><button onClick={() => void refresh()}>Refresh Devices</button></div>
+    {error && <div className="error-banner">{error}</div>}
+    <div className="midi-grid">
+      <div className="panel"><h2>Output</h2><label><span>Destination</span><select value={settings.outputIndex ?? ""} onChange={(e) => void connect(Number(e.currentTarget.value))}><option value="">Select MIDI output</option>{ports.map((port)=><option key={port.index} value={port.index}>{port.name}</option>)}</select></label><label><span>Default Channel</span><input type="number" min="1" max="16" value={settings.channel} onChange={(e)=>onSettingsChange({...settings,channel:Math.max(1,Math.min(16,Number(e.currentTarget.value)))})}/></label><p>{connected ? "Connected · " + settings.outputName : "Not connected"}</p><button disabled={!connected} onClick={() => void disconnectMidiOutput().then(()=>setConnected(false))}>Disconnect</button></div>
+      <div className="panel"><h2>Test Output</h2><label><span>Program</span><input type="number" min="0" max="127" value={testProgram} onChange={(e)=>setTestProgram(Number(e.currentTarget.value))}/></label><button disabled={!connected} onClick={()=>void sendProgramChange(settings.channel,testProgram)}>Send Program Change</button><button disabled={!connected} onClick={()=>void sendControlChange(settings.channel,1,127)}>Send CC 1 · 127</button></div>
+      <div className="panel midi-section-map"><h2>Section Patches</h2>{sections.map((section,index)=><label key={section.id}><span>{section.name}</span><input value={section.midiPatch ?? ""} placeholder={"e.g. 12@" + settings.channel} onChange={(e)=>onSectionsChange(sections.map((item,i)=>i===index?{...item,midiPatch:e.currentTarget.value||undefined}:item))}/><button disabled={!connected || !section.midiPatch} onClick={()=>section.midiPatch && void sendMidiPatch(section.midiPatch)}>Test</button></label>)}</div>
+    </div>
+  </section>;
+}
+
+function VideoEditor({ program, sections, positionSeconds, playing, sectionId, onChange }: { program?: VideoProgram; sections: Song["sections"]; positionSeconds: number; playing: boolean; sectionId?: string; onChange: (program: VideoProgram) => void }) {
+  const value: VideoProgram = program ?? { clips: [], output: { displayEnabled: false, ndiEnabled: false, ndiName: "LumaRig Studio Program" } };
+  const [selectedId, setSelectedId] = useState<string | null>(value.clips[0]?.id ?? null);
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [error, setError] = useState("");
+  const selected = value.clips.find((clip) => clip.id === selectedId) ?? value.clips[0];
+
+  function updateClip(id: string, patch: Partial<VideoClip>) {
+    onChange({ ...value, clips: value.clips.map((clip) => clip.id === id ? { ...clip, ...patch } : clip) });
+  }
+  async function addLocal() {
+    try { setError(""); const clip = await chooseLocalVideo(); if (!clip) return; onChange({ ...value, clips: [...value.clips, clip] }); setSelectedId(clip.id); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }
+  function addYouTube() {
+    try { setError(""); const clip = createYouTubeClip(youtubeUrl); onChange({ ...value, clips: [...value.clips, clip] }); setSelectedId(clip.id); setYoutubeUrl(""); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+  }
+
+  return <section className="video-editor">
+    <div className="page-head"><div><h1>Video / NDI</h1><p>Timeline video, section cues and program output</p></div><button className="primary" onClick={() => void addLocal()}>Add MP4 / MOV</button></div>
+    {error && <div className="error-banner">{error}</div>}
+    <div className="panel video-source-add"><input value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.currentTarget.value)} placeholder="Paste YouTube link" /><button onClick={addYouTube}>Add YouTube</button></div>
+    <div className="video-editor-grid">
+      <div className="panel video-library"><h2>Clips</h2>{value.clips.length === 0 && <p>No video clips yet.</p>}{value.clips.map((clip) => <button key={clip.id} className={clip.id === selected?.id ? "active" : ""} onClick={() => setSelectedId(clip.id)}><strong>{clip.name}</strong><span>{clip.source.kind === "local" ? clip.source.format.toUpperCase() : "YouTube"} · {clip.sourceInSeconds.toFixed(1)}s → {clip.sourceOutSeconds?.toFixed(1) ?? "end"}</span></button>)}</div>
+      <div className="panel video-preview">
+        <VideoProgramRenderer program={value} positionSeconds={positionSeconds} playing={playing} sectionId={sectionId} preview />
+      </div>
+      {selected && <div className="panel video-inspector"><h2>Clip Editor</h2>
+        <label><span>Name</span><input value={selected.name} onChange={(e) => updateClip(selected.id,{name:e.currentTarget.value})}/></label>
+        <label><span>Timeline Start</span><input type="number" min="0" step="0.1" value={selected.timelineStartSeconds} onChange={(e)=>updateClip(selected.id,{timelineStartSeconds:Number(e.currentTarget.value)})}/></label>
+        <label><span>Source In</span><input type="number" min="0" step="0.1" value={selected.sourceInSeconds} onChange={(e)=>updateClip(selected.id,{sourceInSeconds:Number(e.currentTarget.value)})}/></label>
+        <label><span>Source Out</span><input type="number" min="0" step="0.1" value={selected.sourceOutSeconds ?? ""} placeholder="End" onChange={(e)=>updateClip(selected.id,{sourceOutSeconds:e.currentTarget.value === "" ? undefined : Number(e.currentTarget.value)})}/></label>
+        <label><span>Section</span><select value={selected.sectionId ?? ""} onChange={(e)=>updateClip(selected.id,{sectionId:e.currentTarget.value || undefined,playbackMode:e.currentTarget.value ? "section":"timeline"})}><option value="">Timeline</option>{sections.map((section)=><option key={section.id} value={section.id}>{section.name}</option>)}</select></label>
+        <label><span>Loop</span><input type="checkbox" checked={selected.loop} onChange={(e)=>updateClip(selected.id,{loop:e.currentTarget.checked})}/></label>
+        <button onClick={()=>{onChange({...value,clips:value.clips.filter((clip)=>clip.id!==selected.id)});setSelectedId(null);}}>Remove Clip</button>
+      </div>}
+    </div>
+    <div className="panel video-program-controls">
+      {(["live","black","clear","freeze"] as VideoProgramState[]).map((state) => <button key={state} className={(value.state ?? "live") === state ? "active" : ""} onClick={() => onChange({...value,state})}>{state.toUpperCase()}</button>)}
+      <button onClick={() => void openVideoOutput()}>Open Output</button>
+      <button onClick={() => void fullscreenVideoOutput(true)}>Fullscreen</button>
+    </div>
+    <div className="panel video-output"><h2>Program Output</h2>
+      <label><input type="checkbox" checked={value.output.displayEnabled} onChange={(e)=>onChange({...value,output:{...value.output,displayEnabled:e.currentTarget.checked}})}/> External Display</label>
+      <label><input type="checkbox" checked={value.output.ndiEnabled} onChange={(e)=>onChange({...value,output:{...value.output,ndiEnabled:e.currentTarget.checked}})}/> NDI</label>
+      <input value={value.output.ndiName} onChange={(e)=>onChange({...value,output:{...value.output,ndiName:e.currentTarget.value}})} aria-label="NDI source name"/>
+    </div>
+  </section>;
+}
+
+function UnavailableFeature({ title, text }: { title: string; text: string }) {
+  return (
+    <section>
+      <div className="page-head"><div><h1>{title}</h1><p>{text}</p></div></div>
+      <div className="panel utility">
+        <h2>Runtime not connected yet</h2>
+        <p>{text} Controls stay disabled until the native provider is available.</p>
+        <button className="primary" disabled>Unavailable in this build</button>
+      </div>
+    </section>
   );
 }
 
@@ -710,6 +902,7 @@ function fmtClock(seconds: number) {
 
 function SetlistPage({
   selected,
+  setlist,
   audio,
   onSelect,
   onOpenArrangement,
@@ -719,6 +912,7 @@ function SetlistPage({
   onPause
 }: {
   selected: Song;
+  setlist: Setlist;
   audio: AudioEngineController;
   onSelect: (song: Song) => void;
   onOpenArrangement: () => void;
@@ -736,8 +930,8 @@ function SetlistPage({
   const playProgress = audio.hasLoadedAudio && (audio.status.durationSeconds ?? 0) > 0
     ? Math.min(100, ((audio.status.positionSeconds ?? 0) / (audio.status.durationSeconds ?? 1)) * 100)
     : 29;
-  const previousSong = adjacentSong(demoSetlist, selected.id, -1);
-  const nextSong = adjacentSong(demoSetlist, selected.id, 1);
+  const previousSong = adjacentSong(setlist, selected.id, -1);
+  const nextSong = adjacentSong(setlist, selected.id, 1);
   const transportBusy = Boolean(audio.status.transitionActive);
   const transportPlaying = Boolean(audio.status.playing);
 
@@ -748,7 +942,7 @@ function SetlistPage({
           <div className="dashboard-panel-head">
             <div>
               <h2>Setlist</h2>
-              <span>{demoSetlist.songs.length} Songs · 42 min</span>
+              <span>{setlist.songs.length} Songs · 42 min</span>
             </div>
             <div className="head-actions">
               <button className="primary compact" onClick={onImport}>
@@ -764,7 +958,7 @@ function SetlistPage({
             <span>Time</span><span>Tracks</span><span>Lights</span><span>Video</span><span>MIDI</span><span>Status</span>
           </div>
 
-          {demoSetlist.songs.map((song, index) => (
+          {setlist.songs.map((song, index) => (
             <button
               key={song.id}
               className={selected.id === song.id ? "dashboard-song-row selected" : "dashboard-song-row"}
@@ -1084,11 +1278,13 @@ function SetlistPage({
 
 function SongsPage({
   selected,
+  setlist,
   onSelect,
   onOpenArrangement,
   onImport
 }: {
   selected: Song;
+  setlist: Setlist;
   onSelect: (song: Song) => void;
   onOpenArrangement: () => void;
   onImport: () => void;
@@ -1109,7 +1305,7 @@ function SongsPage({
             <strong>Library</strong>
             <input placeholder="Search songs" aria-label="Search songs" />
           </div>
-          {demoSetlist.songs.map((song) => (
+          {setlist.songs.map((song) => (
             <button
               key={song.id}
               className={song.id === selected.id ? "library-song selected" : "library-song"}
@@ -1858,45 +2054,125 @@ const padNames = [
   "Ritual"
 ];
 
-function Pads() {
+function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlot[]; initialPadCount?: 12 | 16; onChange: (pads: PadSlot[], padCount: 12 | 16) => void }) {
   const [active, setActive] = useState(0);
+  const [padCount, setPadCount] = useState<12 | 16>(initialPadCount ?? 12);
+  const [playing, setPlaying] = useState<Set<string>>(new Set());
+  const [error, setError] = useState("");
+  const [pads, setPads] = useState<PadSlot[]>(() => {
+    const defaults: PadSlot[] = Array.from(
+      { length: 16 },
+      (_, index) => padNames[index] ?? `Pad ${index + 1}`
+    ).map((name, index): PadSlot => ({
+      id: `pad-${index + 1}`,
+      name,
+      mode: "latch",
+      gainDb: 0,
+      octave: 0,
+      width: 70,
+      attackMs: 10,
+      releaseMs: 1800
+    }));
+    return defaults.map((slot, index) => initialPads?.[index] ? { ...slot, ...initialPads[index] } : slot);
+  });
+  const pad = pads[active];
+
+  const onChangeRef = useRef(onChange);
+  useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
+  useEffect(() => { onChangeRef.current(pads, padCount); }, [pads, padCount]);
+
+  useEffect(() => () => { for (let index = 0; index < 16; index += 1) void stopNativePad(index); }, []);
+
+  function updatePad(update: Partial<PadSlot>) {
+    setPads((current) => current.map((item, index) => index === active ? { ...item, ...update } : item));
+  }
+
+  async function replacePad() {
+    try {
+      setError("");
+      const file = await choosePadAudio();
+      if (file) {
+        const next = { ...pad, path: file.path, name: file.name };
+        updatePad({ path: file.path, name: file.name });
+        await loadNativePad(active, next);
+      }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  async function pressPad(slot: PadSlot, index: number) {
+    setActive(index);
+    try {
+      setError("");
+      if (!slot.path) throw new Error("Load audio into this pad first.");
+      if (slot.mode === "latch" && playing.has(slot.id)) {
+        await releaseNativePad(index);
+        setPlaying((current) => { const next = new Set(current); next.delete(slot.id); return next; });
+        return;
+      }
+      await loadNativePad(index, slot);
+      await triggerNativePad(index);
+      setPlaying((current) => new Set(current).add(slot.id));
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  function liftPad(slot: PadSlot, index: number) {
+    if (slot.mode !== "hold") return;
+    void releaseNativePad(index);
+    setPlaying((current) => { const next = new Set(current); next.delete(slot.id); return next; });
+  }
+
+
   return (
     <section>
       <div className="page-head">
         <div>
           <h1>Pad Player</h1>
-          <p>12 customizable background pads · Bank A</p>
+          <p>{padCount} customizable background pads · WAV / MP3 / AIFF · native audio</p>
         </div>
-        <button>+ Bank</button>
+        <div className="head-actions">
+          <div className="segmented"><button className={padCount === 12 ? "active" : ""} onClick={() => setPadCount(12)}>12 Pads</button><button className={padCount === 16 ? "active" : ""} onClick={() => setPadCount(16)}>16 Pads</button></div>
+          <button onClick={() => { for (let index = 0; index < 16; index += 1) void stopNativePad(index); setPlaying(new Set()); }}>Stop All</button>
+        </div>
       </div>
+
+      {error && <div className="audio-error panel">{error}</div>}
 
       <div className="pads-layout">
         <div className="pad-grid">
-          {padNames.map((name, index) => (
+          {pads.slice(0, padCount).map((slot, index) => (
             <button
-              key={name}
-              className={index === active ? "pad active-pad" : "pad"}
-              onClick={() => setActive(index)}
+              key={slot.id}
+              className={playing.has(slot.id) ? "pad active-pad" : "pad"}
+              onPointerDown={() => pressPad(slot, index)}
+              onPointerUp={() => liftPad(slot, index)}
+              onPointerLeave={() => liftPad(slot, index)}
             >
               <span>{index + 1}</span>
-              <Waveform
-                seed={index}
-                color={["#fbbf24", "#60a5fa", "#f472b6", "#2dd4bf"][index % 4]}
-              />
-              <strong>{name}</strong>
+              <Waveform seed={index} color={["#fbbf24", "#60a5fa", "#f472b6", "#2dd4bf"][index % 4]} />
+              <strong>{slot.name}</strong>
+              <small>{slot.path ? slot.mode : "Empty"}</small>
             </button>
           ))}
         </div>
 
         <div className="panel pad-inspector">
           <small>PAD {active + 1}</small>
-          <h2>{padNames[active]}</h2>
+          <h2>{pad.name}</h2>
           <Waveform seed={active} color="#fbbf24" />
-          <Field label="Octave" value="0" />
-          <Field label="Wideness" value="70%" />
-          <Field label="Volume" value="0.0 dB" />
-          <Field label="Release" value="1.8 s" />
-          <button className="primary">Replace WAV / MP3</button>
+          <label><span>Mode</span><select value={pad.mode} onChange={(e) => { const next = { ...pad, mode: e.currentTarget.value as PadSlot["mode"] }; updatePad({ mode: next.mode }); if (next.path) void loadNativePad(active, next); }}>
+            <option value="one-shot">One Shot</option><option value="loop">Loop</option><option value="hold">Hold</option><option value="latch">Latch</option>
+          </select></label>
+          <label><span>Octave</span><input type="range" min="-2" max="2" step="1" value={pad.octave} onChange={(e) => { const next = { ...pad, octave: Number(e.currentTarget.value) }; updatePad({ octave: next.octave }); if (next.path) void loadNativePad(active, next); }} /><strong>{pad.octave > 0 ? "+" : ""}{pad.octave}</strong></label>
+          <label><span>Wideness</span><input type="range" min="0" max="100" value={pad.width} onChange={(e) => { const next = { ...pad, width: Number(e.currentTarget.value) }; updatePad({ width: next.width }); void configureNativePad(active, next); }} /><strong>{pad.width}%</strong></label>
+          <label><span>Volume</span><input type="range" min="-60" max="6" step=".5" value={pad.gainDb} onChange={(e) => { const next = { ...pad, gainDb: Number(e.currentTarget.value) }; updatePad({ gainDb: next.gainDb }); void configureNativePad(active, next); }} /><strong>{pad.gainDb.toFixed(1)} dB</strong></label>
+          <label><span>Attack</span><input type="range" min="0" max="2000" step="10" value={pad.attackMs} onChange={(e) => { const next = { ...pad, attackMs: Number(e.currentTarget.value) }; updatePad({ attackMs: next.attackMs }); void configureNativePad(active, next); }} /><strong>{(pad.attackMs / 1000).toFixed(2)} s</strong></label>
+          <label><span>Release</span><input type="range" min="0" max="5000" step="50" value={pad.releaseMs} onChange={(e) => { const next = { ...pad, releaseMs: Number(e.currentTarget.value) }; updatePad({ releaseMs: next.releaseMs }); void configureNativePad(active, next); }} /><strong>{(pad.releaseMs / 1000).toFixed(2)} s</strong></label>
+          <button className="primary" onClick={() => void replacePad()}>{pad.path ? "Replace Audio" : "Load WAV / MP3 / AIFF"}</button>
+          {pad.path && <code>{pad.path}</code>}
         </div>
       </div>
     </section>
@@ -2226,74 +2502,95 @@ function Mixer({
   );
 }
 
-function Lighting({ song }: { song: Song }) {
+function Lighting({
+  song,
+  lumarig
+}: {
+  song: Song;
+  lumarig: ReturnType<typeof useLumaRig>;
+}) {
+  const connected = lumarig.state === "connected";
+
+  async function connectLocal() {
+    await lumarig.connect(loopbackLumaRigPeer());
+    await lumarig.resolveSong({
+      studioShowId: "current-studio-show",
+      studioShowName: "Current Studio Show",
+      songId: song.id,
+      songTitle: song.title,
+      bpm: song.bpm
+    }, true);
+  }
+
   return (
     <section>
       <div className="page-head">
         <div>
           <h1>Lighting</h1>
-          <p>Section cues and automation · {song.title}</p>
+          <p>LumaRig programming and song recall · {song.title}</p>
         </div>
-        <button className="primary">Test Output</button>
+        <span className={connected ? "ready" : "muted"}>
+          <span className={connected ? "dot ok" : "dot bad"} />
+          {connected ? "LumaRig Connected" : "LumaRig Offline"}
+        </span>
       </div>
+
+      <div className="panel remote-pairing-card">
+        <div>
+          <small>LUMARIG BRIDGE</small>
+          <h2>{connected ? lumarig.peer?.name ?? "LumaRig" : "Connect Lighting Engine"}</h2>
+          <p>{connected
+            ? "This song is linked to its LumaRig show. Cues, FX and recorded lighting stay in LumaRig while Studio owns song transport."
+            : "Studio first checks for LumaRig on this computer. LAN discovery and Network Session are the next fallback transports."}</p>
+        </div>
+        <div className="remote-session-buttons">
+          {!connected
+            ? <button className="primary" onClick={() => void connectLocal()}>Detect LumaRig</button>
+            : <>
+                <button onClick={() => void lumarig.resolveSong({
+                  studioShowId: "current-studio-show", studioShowName: "Current Studio Show",
+                  songId: song.id, songTitle: song.title, bpm: song.bpm
+                }, true)}>Recall Song Show</button>
+                <button onClick={() => void lumarig.disconnect()}>Disconnect</button>
+              </>}
+        </div>
+      </div>
+
+      {lumarig.error && <div className="audio-error panel">{lumarig.error}</div>}
 
       <div className="lighting-layout">
         <div className="panel fixtures">
-          <h3>Groups</h3>
-          {["All Fixtures", "Front Wash", "Back Wash", "Movers", "Blinders", "Stage FX", "LED Bars"].map(
-            (label, index) => (
-              <button
-                key={label}
-                className={index === 3 ? "fixture selected" : "fixture"}
-              >
-                <span
-                  className="swatch"
-                  style={{
-                    background: ["#60a5fa", "#fb923c", "#fb7185", "#a78bfa", "#22c55e", "#f472b6", "#38bdf8"][index]
-                  }}
-                />
-                {label}
-                <span>{index === 0 ? 32 : 8}</span>
-              </button>
-            )
-          )}
+          <h3>LumaRig Control</h3>
+          <button disabled={!connected} onClick={() => void lumarig.send({ type: "cue.go" })}>GO Cue</button>
+          <button disabled={!connected} onClick={() => void lumarig.send({ type: "record.start", songId: song.id, songTitle: song.title, bpm: song.bpm })}>Record Show</button>
+          <button disabled={!connected} onClick={() => void lumarig.send({ type: "record.stop" })}>Stop Recording</button>
+          <button className="danger-outline" disabled={!connected} onClick={() => void lumarig.send({ type: "blackout", enabled: true })}>Blackout</button>
+          <small>Fixture programming remains in LumaRig.</small>
         </div>
 
         <div className="panel lighting-timeline">
           <div className="section-ruler">
             {song.sections.map((section) => (
-              <div
-                key={section.id}
-                className="section-block"
-                style={{ flex: section.lengthBars, background: section.color }}
-              >
+              <div key={section.id} className="section-block" style={{ flex: section.lengthBars, background: section.color }}>
                 {section.name}
               </div>
             ))}
           </div>
-          {["Intensity", "Color", "Movement", "Beam", "Strobe", "FX"].map(
-            (lane, index) => (
-              <div className="light-lane" key={lane}>
-                <strong>{lane}</strong>
-                <div>
-                  <Waveform
-                    seed={index}
-                    color={["#60a5fa", "#f472b6", "#22d3ee", "#a78bfa", "#cbd5e1", "#8b5cf6"][index]}
-                  />
-                </div>
-              </div>
-            )
-          )}
+          {["Intensity", "Color", "Movement", "Beam", "Strobe", "FX"].map((lane, index) => (
+            <div className="light-lane" key={lane}>
+              <strong>{lane}</strong>
+              <div><Waveform seed={index} color={["#60a5fa", "#f472b6", "#22d3ee", "#a78bfa", "#cbd5e1", "#8b5cf6"][index]} /></div>
+            </div>
+          ))}
         </div>
 
         <div className="panel cue-inspector">
-          <small>CUE</small>
-          <h2>Chorus Hit</h2>
-          <Field label="Trigger" value="1 Bar" />
-          <Field label="Fade" value="2.0 s" />
-          <Field label="Movement" value="Circle" />
-          <Field label="Intensity" value="100%" />
-          <Field label="Output" value="LumaRig" />
+          <small>SONG LINK</small>
+          <h2>{song.title}</h2>
+          <Field label="BPM" value={String(song.bpm)} />
+          <Field label="Connection" value={connected ? lumarig.peer?.transport ?? "local" : "offline"} />
+          <Field label="Authority" value="LumaRig" />
+          <Field label="Sync" value="Studio Transport" />
         </div>
       </div>
     </section>
@@ -2303,11 +2600,13 @@ function Lighting({ song }: { song: Song }) {
 function Connections({
   audio,
   remote,
+  lumarig,
   song,
   onSongChange
 }: {
   audio: AudioEngineController;
   remote: ReturnType<typeof useRemoteRelay>;
+  lumarig: ReturnType<typeof useLumaRig>;
   song: Song;
   onSongChange: (song: Song) => void;
 }) {
@@ -2321,7 +2620,7 @@ function Connections({
     ],
     ["MIDI", "LumaRig MIDI (Virtual)", "Clock + Start/Stop"],
     ["Clock Sync", "Internal (LumaRig)", "Song tempo"],
-    ["Lighting", "LumaRig / Art-Net", "Runtime comes in Phase 4"],
+    ["Lighting", lumarig.peer?.name ?? "LumaRig", lumarig.state === "connected" ? "Direct bridge connected" : "Not connected"],
     ["Network", "Supabase Realtime", "Studio owns the remote relay session"]
   ];
 
@@ -2437,8 +2736,10 @@ function Connections({
                     ? "muted"
                     : title === "Network" && remote.status !== "online"
                       ? "muted"
-                      : title === "MIDI" || title === "Lighting"
+                      : title === "MIDI"
                         ? "muted"
+                        : title === "Lighting" && lumarig.state !== "connected"
+                          ? "muted"
                         : "ready"
                 }
               >

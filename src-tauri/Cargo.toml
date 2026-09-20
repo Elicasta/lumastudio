@@ -1,6 +1,6 @@
 [package]
 name = "lumarig-studio"
-version = "0.2.0"
+version = "0.3.0"
 description = "LumaRig Studio"
 authors = ["LumaRig Studio"]
 edition = "2021"
@@ -18,6 +18,8 @@ arc-swap = "1.7"
 audioadapter-buffers = "5.1"
 cpal = "0.18.2"
 hound = "3.5"
+midir = "0.11"
+symphonia = { version = "0.5", features = ["mp3", "aiff", "pcm"] }
 rubato = { version = "5.0", features = ["fft_resampler"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

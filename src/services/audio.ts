@@ -53,6 +53,7 @@ export interface NativeAudioStatus {
   clickBus?: NativeAudioBusStatus;
   guideBus?: NativeAudioBusStatus;
   masterBus?: NativeAudioBusStatus;
+  padBus?: NativeAudioBusStatus;
   lastError?: string | null;
 }
 
@@ -91,7 +92,7 @@ export async function getAudioStatus(): Promise<NativeAudioStatus> {
   return invoke<NativeAudioStatus>("audio_status");
 }
 
-export async function chooseWavTracks(): Promise<NativeAudioTrack[]> {
+export async function chooseAudioTracks(): Promise<NativeAudioTrack[]> {
   if (!isNativeApp()) {
     throw new Error("Open LumaRig Studio as the desktop app to select local audio files.");
   }
@@ -99,7 +100,7 @@ export async function chooseWavTracks(): Promise<NativeAudioTrack[]> {
   const selected = await open({
     multiple: true,
     directory: false,
-    filters: [{ name: "WAV Audio", extensions: ["wav", "wave"] }]
+    filters: [{ name: "Audio", extensions: ["wav", "wave", "mp3", "aif", "aiff"] }]
   });
 
   if (!selected) return [];
@@ -108,7 +109,7 @@ export async function chooseWavTracks(): Promise<NativeAudioTrack[]> {
 
   return paths.map((path, index) => {
     const filename = path.split(/[\\/]/).pop() ?? "Track " + (index + 1);
-    const name = filename.replace(/\.(wav|wave)$/i, "");
+    const name = filename.replace(/\.(wav|wave|mp3|aif|aiff)$/i, "");
     const kind = inferTrackKind(name);
 
     return {
@@ -149,7 +150,7 @@ export async function setGuideTimeline(
   return invoke<NativeAudioStatus>("audio_set_guide_timeline", { events });
 }
 
-export async function loadWavSong(
+export async function loadAudioSong(
   tracks: NativeAudioTrack[]
 ): Promise<NativeAudioStatus> {
   return invoke<NativeAudioStatus>("audio_load_wav_song", {
@@ -219,7 +220,7 @@ export async function audioCancelTransition(): Promise<NativeAudioStatus> {
 
 
 export async function setNativeBusGain(
-  id: "music" | "click" | "guide" | "master",
+  id: "music" | "click" | "guide" | "pads" | "master",
   gainDb: number
 ): Promise<NativeAudioStatus> {
   return invoke<NativeAudioStatus>("audio_set_bus_gain", { id, gainDb });
@@ -233,7 +234,7 @@ export async function setNativeBusMuted(
 }
 
 export async function setNativeBusRoute(
-  id: "music" | "click" | "guide",
+  id: "music" | "click" | "guide" | "pads",
   outputLeft: number,
   outputRight: number
 ): Promise<NativeAudioStatus> {
@@ -290,3 +291,4 @@ function uniqueTrackId(name: string, index: number): string {
 
   return (slug || "track") + "-" + (index + 1);
 }
+

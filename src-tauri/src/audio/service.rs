@@ -10,6 +10,7 @@ use super::{
     },
     media::{load_wav_track, WavTrackRequest},
     model::{SongMix, TrackBus},
+    pad::PadSample,
 };
 
 #[derive(Debug, Clone, Deserialize)]
@@ -124,6 +125,35 @@ impl AudioService {
         engine.replace_song(SongMix::new(tracks));
         Ok(engine.status())
     }
+
+    pub fn load_pad(&self, index: usize, path: &str, looped: bool, gain_db: f32, width: f32, octave: i32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> {
+        let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
+        if guard.is_none() { *guard = Some(AudioEngine::new()?); }
+        let engine = guard.as_ref().expect("initialized above");
+        let track = load_wav_track(&WavTrackRequest {
+            id: format!("pad-{}", index + 1),
+            name: format!("Pad {}", index + 1),
+            path: path.to_string(),
+            gain_db: 0.0,
+            start_frame: 0,
+            bus: TrackBus::Music,
+        }, engine.sample_rate())?;
+        engine.load_pad(index, PadSample {
+            id: track.id,
+            samples: track.samples,
+            looped,
+            gain: 1.0,
+            width: width.clamp(0.0, 2.0),
+            playback_rate: 2.0_f32.powi(octave.clamp(-2, 2)),
+        })?;
+        engine.configure_pad(index, gain_db, width, attack_ms, release_ms)?;
+        Ok(())
+    }
+
+    pub fn trigger_pad(&self, index: usize) -> Result<(), AudioError> { self.with_engine(|engine| engine.trigger_pad(index))? }
+    pub fn release_pad(&self, index: usize) -> Result<(), AudioError> { self.with_engine(|engine| engine.release_pad(index))? }
+    pub fn stop_pad(&self, index: usize) -> Result<(), AudioError> { self.with_engine(|engine| engine.stop_pad(index))? }
+    pub fn configure_pad(&self, index: usize, gain_db: f32, width: f32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> { self.with_engine(|engine| engine.configure_pad(index, gain_db, width, attack_ms, release_ms))? }
 
     pub fn load_voice_pack(&self, directory: &str) -> Result<AudioEngineStatus, AudioError> {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");

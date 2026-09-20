@@ -22,6 +22,7 @@ use super::{
     },
     meter::StereoMeter,
     model::{SongMix, TrackBus},
+    pad::{render_pad, PadSample, PadVoice},
     transition::ScheduledTransition,
     transport::Transport,
 };
@@ -39,6 +40,8 @@ pub struct RealtimeState {
     pub click_bus: BusControl,
     pub guide_bus: BusControl,
     pub master_bus: BusControl,
+    pub pad_bus: BusControl,
+    pub pads: Vec<PadVoice>,
     pub device_error: AtomicBool,
 }
 
@@ -57,6 +60,8 @@ impl RealtimeState {
             click_bus: BusControl::new(-6.0),
             guide_bus: BusControl::new(-3.0),
             master_bus: BusControl::new(0.0),
+            pad_bus: BusControl::new(0.0),
+            pads: (0..16).map(|_| PadVoice::new()).collect(),
             device_error: AtomicBool::new(false),
         }
     }
@@ -104,6 +109,7 @@ pub struct AudioEngineStatus {
     pub click_bus: AudioBusStatus,
     pub guide_bus: AudioBusStatus,
     pub master_bus: AudioBusStatus,
+    pub pad_bus: AudioBusStatus,
 }
 
 impl AudioEngine {
@@ -133,6 +139,7 @@ impl AudioEngine {
             realtime.click_bus.set_output_pair(0, 0);
             realtime.guide_bus.set_output_pair(0, 0);
             realtime.master_bus.set_output_pair(0, 0);
+            realtime.pad_bus.set_output_pair(0, 0);
         }
         let error_state = realtime.clone();
 
@@ -158,6 +165,34 @@ impl AudioEngine {
             sample_rate,
             output_channels,
         })
+    }
+
+    pub fn load_pad(&self, index: usize, sample: PadSample) -> Result<(), AudioError> {
+        let voice = self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?;
+        voice.sample.store(Arc::new(sample));
+        voice.stop();
+        Ok(())
+    }
+
+    pub fn trigger_pad(&self, index: usize) -> Result<(), AudioError> {
+        self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?.trigger();
+        Ok(())
+    }
+
+    pub fn release_pad(&self, index: usize) -> Result<(), AudioError> { self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?.release(); Ok(()) }
+
+    pub fn stop_pad(&self, index: usize) -> Result<(), AudioError> {
+        self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?.stop();
+        Ok(())
+    }
+
+    pub fn configure_pad(&self, index: usize, gain_db: f32, width: f32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> {
+        let voice = self.realtime.pads.get(index).ok_or_else(|| AudioError::Guide("pad index is outside 1-16".into()))?;
+        voice.gain.store(if gain_db <= -90.0 { 0.0 } else { 10.0_f32.powf(gain_db.clamp(-90.0, 12.0) / 20.0) });
+        voice.width.store(width.clamp(0.0, 2.0));
+        voice.attack_frames.store((attack_ms as f64 * self.sample_rate as f64 / 1000.0) as u64, Ordering::Relaxed);
+        voice.release_frames.store((release_ms as f64 * self.sample_rate as f64 / 1000.0) as u64, Ordering::Relaxed);
+        Ok(())
     }
 
     pub fn sample_rate(&self) -> u32 {
@@ -346,6 +381,7 @@ impl AudioEngine {
             "music" => Ok(&self.realtime.music_bus),
             "click" => Ok(&self.realtime.click_bus),
             "guide" => Ok(&self.realtime.guide_bus),
+            "pads" => Ok(&self.realtime.pad_bus),
             "master" => Ok(&self.realtime.master_bus),
             _ => Err(AudioError::BusNotFound(id.to_owned())),
         }
@@ -467,6 +503,12 @@ impl AudioEngine {
                 output_left: self.realtime.master_bus.output_pair().0 + 1,
                 output_right: self.realtime.master_bus.output_pair().1 + 1,
             },
+            pad_bus: AudioBusStatus {
+                gain_db: self.realtime.pad_bus.gain_db(),
+                muted: self.realtime.pad_bus.muted(),
+                output_left: self.realtime.pad_bus.output_pair().0 + 1,
+                output_right: self.realtime.pad_bus.output_pair().1 + 1,
+            },
         }
     }
 }
@@ -525,7 +567,8 @@ where
     }
 
     let mix = realtime.mix.load();
-    if mix.duration_frames == 0 {
+    let pads_active = realtime.pads.iter().any(|voice| voice.playing.load(Ordering::Acquire));
+    if mix.duration_frames == 0 && !pads_active {
         realtime.transition.cancel();
         realtime.transport.pause();
         realtime.meter.store_peaks(0.0, 0.0);
@@ -551,7 +594,7 @@ where
         transition_active,
     );
 
-    if !playing && !transition_active {
+    if !playing && !transition_active && !pads_active {
         realtime.meter.store_peaks(0.0, 0.0);
         guide_renderer.clear();
         return;
@@ -629,9 +672,18 @@ where
 
         let (voice_guide_left, voice_guide_right) = guide_renderer.mix_active();
 
+        let mut pad_left = 0.0_f32;
+        let mut pad_right = 0.0_f32;
+        for voice in &realtime.pads {
+            let (left, right) = render_pad(voice);
+            pad_left += left;
+            pad_right += right;
+        }
+
         let music_gain = realtime.music_bus.gain_linear();
         let click_gain = realtime.click_bus.gain_linear();
         let guide_gain = realtime.guide_bus.gain_linear();
+        let pad_gain = realtime.pad_bus.gain_linear();
         let master_gain = realtime.master_bus.gain_linear();
 
         let music = (music_left * music_gain, music_right * music_gain);
@@ -643,10 +695,12 @@ where
             (track_guide_left + voice_guide_left) * guide_gain,
             (track_guide_right + voice_guide_right) * guide_gain,
         );
+        let pads = (pad_left * pad_gain, pad_right * pad_gain);
 
         let music_route = realtime.music_bus.output_pair();
         let click_route = realtime.click_bus.output_pair();
         let guide_route = realtime.guide_bus.output_pair();
+        let pad_route = realtime.pad_bus.output_pair();
 
         for (channel, sample_out) in frame_out.iter_mut().enumerate() {
             let channel = channel as u16;
@@ -654,6 +708,7 @@ where
                 routed_bus_sample(channel, music_route, music)
                     + routed_bus_sample(channel, click_route, click_bus)
                     + routed_bus_sample(channel, guide_route, guide)
+                    + routed_bus_sample(channel, pad_route, pads)
             ) * master_gain;
             let sample = sample.clamp(-1.0, 1.0);
 
@@ -882,5 +937,22 @@ mod tests {
         render(&mut output, 2, 48_000, &state, &mut GuideRenderer::default());
 
         assert_eq!(output, vec![0.2, 0.2]);
+    }
+}
+
+#[cfg(test)]
+mod pad_engine_tests {
+    use super::*;
+
+    #[test]
+    fn realtime_state_has_sixteen_pad_voices() {
+        let state = RealtimeState::new();
+        assert_eq!(state.pads.len(), 16);
+    }
+
+    #[test]
+    fn pads_bus_is_addressable() {
+        let state = RealtimeState::new();
+        assert_eq!(state.pad_bus.output_pair(), (0, 1));
     }
 }

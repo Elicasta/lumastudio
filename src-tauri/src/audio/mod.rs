@@ -5,6 +5,7 @@ mod guide;
 mod media;
 mod meter;
 mod model;
+mod pad;
 mod service;
 mod transport;
 mod transition;
@@ -18,6 +19,32 @@ use service::AudioTrackRequest;
 
 fn value<T: serde::Serialize>(input: T) -> Result<Value, String> {
     serde_json::to_value(input).map_err(|error| error.to_string())
+}
+
+
+#[tauri::command]
+pub fn audio_load_pad(index: usize, path: String, looped: bool, gain_db: f32, width: f32, octave: i32, attack_ms: u64, release_ms: u64, service: State<'_, AudioService>) -> Result<(), String> {
+    service.load_pad(index, &path, looped, gain_db, width, octave, attack_ms, release_ms).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn audio_trigger_pad(index: usize, service: State<'_, AudioService>) -> Result<(), String> {
+    service.trigger_pad(index).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn audio_release_pad(index: usize, service: State<'_, AudioService>) -> Result<(), String> {
+    service.release_pad(index).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn audio_stop_pad(index: usize, service: State<'_, AudioService>) -> Result<(), String> {
+    service.stop_pad(index).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn audio_configure_pad(index: usize, gain_db: f32, width: f32, attack_ms: u64, release_ms: u64, service: State<'_, AudioService>) -> Result<(), String> {
+    service.configure_pad(index, gain_db, width, attack_ms, release_ms).map_err(|error| error.to_string())
 }
 
 #[tauri::command]
