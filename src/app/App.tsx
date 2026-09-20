@@ -38,6 +38,8 @@ import {
   sectionStartSeconds
 } from "../domain/timing";
 import { useRemoteRelay } from "../hooks/useRemoteRelay";
+import { useLumaRig } from "../hooks/useLumaRig";
+import { loopbackLumaRigPeer } from "../lumarig/discovery";
 import type { RemoteCommandEnvelope } from "../remote/protocol";
 import { buildRemoteStudioState } from "../remote/state";
 import { checkForAppUpdate } from "../services/updater";
@@ -508,7 +510,7 @@ export function App() {
               {buildTool === "arrangement" && <Arrangement song={selectedSong} onSongChange={setSelectedSong} />}
               {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
               {buildTool === "pads" && <Pads />}
-              {buildTool === "lighting" && <Lighting song={selectedSong} />}
+              {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
               {buildTool === "midi" && <UnavailableFeature title="MIDI" text="Native MIDI routing is being wired into the v0.3 runtime." />}
               {buildTool === "video" && <UnavailableFeature title="Video / NDI" text="Video compositor, display output and NDI sender are being wired into the v0.3 runtime." />}
             </>
@@ -533,7 +535,7 @@ export function App() {
                   onPause={pausePlayback}
                 />
               )}
-              {showTool === "connections" && <Connections audio={audio} remote={remote} song={selectedSong} onSongChange={setSelectedSong} />}
+              {showTool === "connections" && <Connections audio={audio} remote={remote} lumarig={lumarig} song={selectedSong} onSongChange={setSelectedSong} />}
               {showTool === "settings" && <SettingsPage audio={audio} />}
             </>
           )}
@@ -2242,74 +2244,95 @@ function Mixer({
   );
 }
 
-function Lighting({ song }: { song: Song }) {
+function Lighting({
+  song,
+  lumarig
+}: {
+  song: Song;
+  lumarig: ReturnType<typeof useLumaRig>;
+}) {
+  const connected = lumarig.state === "connected";
+
+  async function connectLocal() {
+    await lumarig.connect(loopbackLumaRigPeer());
+    await lumarig.resolveSong({
+      studioShowId: "current-studio-show",
+      studioShowName: "Current Studio Show",
+      songId: song.id,
+      songTitle: song.title,
+      bpm: song.bpm
+    }, true);
+  }
+
   return (
     <section>
       <div className="page-head">
         <div>
           <h1>Lighting</h1>
-          <p>Section cues and automation · {song.title}</p>
+          <p>LumaRig programming and song recall · {song.title}</p>
         </div>
-        <button className="primary">Test Output</button>
+        <span className={connected ? "ready" : "muted"}>
+          <span className={connected ? "dot ok" : "dot bad"} />
+          {connected ? "LumaRig Connected" : "LumaRig Offline"}
+        </span>
       </div>
+
+      <div className="panel remote-pairing-card">
+        <div>
+          <small>LUMARIG BRIDGE</small>
+          <h2>{connected ? lumarig.peer?.name ?? "LumaRig" : "Connect Lighting Engine"}</h2>
+          <p>{connected
+            ? "This song is linked to its LumaRig show. Cues, FX and recorded lighting stay in LumaRig while Studio owns song transport."
+            : "Studio first checks for LumaRig on this computer. LAN discovery and Network Session are the next fallback transports."}</p>
+        </div>
+        <div className="remote-session-buttons">
+          {!connected
+            ? <button className="primary" onClick={() => void connectLocal()}>Detect LumaRig</button>
+            : <>
+                <button onClick={() => void lumarig.resolveSong({
+                  studioShowId: "current-studio-show", studioShowName: "Current Studio Show",
+                  songId: song.id, songTitle: song.title, bpm: song.bpm
+                }, true)}>Recall Song Show</button>
+                <button onClick={() => void lumarig.disconnect()}>Disconnect</button>
+              </>}
+        </div>
+      </div>
+
+      {lumarig.error && <div className="audio-error panel">{lumarig.error}</div>}
 
       <div className="lighting-layout">
         <div className="panel fixtures">
-          <h3>Groups</h3>
-          {["All Fixtures", "Front Wash", "Back Wash", "Movers", "Blinders", "Stage FX", "LED Bars"].map(
-            (label, index) => (
-              <button
-                key={label}
-                className={index === 3 ? "fixture selected" : "fixture"}
-              >
-                <span
-                  className="swatch"
-                  style={{
-                    background: ["#60a5fa", "#fb923c", "#fb7185", "#a78bfa", "#22c55e", "#f472b6", "#38bdf8"][index]
-                  }}
-                />
-                {label}
-                <span>{index === 0 ? 32 : 8}</span>
-              </button>
-            )
-          )}
+          <h3>LumaRig Control</h3>
+          <button disabled={!connected} onClick={() => void lumarig.send({ type: "cue.go" })}>GO Cue</button>
+          <button disabled={!connected} onClick={() => void lumarig.send({ type: "record.start", songId: song.id, songTitle: song.title, bpm: song.bpm })}>Record Show</button>
+          <button disabled={!connected} onClick={() => void lumarig.send({ type: "record.stop" })}>Stop Recording</button>
+          <button className="danger-outline" disabled={!connected} onClick={() => void lumarig.send({ type: "blackout", enabled: true })}>Blackout</button>
+          <small>Fixture programming remains in LumaRig.</small>
         </div>
 
         <div className="panel lighting-timeline">
           <div className="section-ruler">
             {song.sections.map((section) => (
-              <div
-                key={section.id}
-                className="section-block"
-                style={{ flex: section.lengthBars, background: section.color }}
-              >
+              <div key={section.id} className="section-block" style={{ flex: section.lengthBars, background: section.color }}>
                 {section.name}
               </div>
             ))}
           </div>
-          {["Intensity", "Color", "Movement", "Beam", "Strobe", "FX"].map(
-            (lane, index) => (
-              <div className="light-lane" key={lane}>
-                <strong>{lane}</strong>
-                <div>
-                  <Waveform
-                    seed={index}
-                    color={["#60a5fa", "#f472b6", "#22d3ee", "#a78bfa", "#cbd5e1", "#8b5cf6"][index]}
-                  />
-                </div>
-              </div>
-            )
-          )}
+          {["Intensity", "Color", "Movement", "Beam", "Strobe", "FX"].map((lane, index) => (
+            <div className="light-lane" key={lane}>
+              <strong>{lane}</strong>
+              <div><Waveform seed={index} color={["#60a5fa", "#f472b6", "#22d3ee", "#a78bfa", "#cbd5e1", "#8b5cf6"][index]} /></div>
+            </div>
+          ))}
         </div>
 
         <div className="panel cue-inspector">
-          <small>CUE</small>
-          <h2>Chorus Hit</h2>
-          <Field label="Trigger" value="1 Bar" />
-          <Field label="Fade" value="2.0 s" />
-          <Field label="Movement" value="Circle" />
-          <Field label="Intensity" value="100%" />
-          <Field label="Output" value="LumaRig" />
+          <small>SONG LINK</small>
+          <h2>{song.title}</h2>
+          <Field label="BPM" value={String(song.bpm)} />
+          <Field label="Connection" value={connected ? lumarig.peer?.transport ?? "local" : "offline"} />
+          <Field label="Authority" value="LumaRig" />
+          <Field label="Sync" value="Studio Transport" />
         </div>
       </div>
     </section>
@@ -2319,11 +2342,13 @@ function Lighting({ song }: { song: Song }) {
 function Connections({
   audio,
   remote,
+  lumarig,
   song,
   onSongChange
 }: {
   audio: AudioEngineController;
   remote: ReturnType<typeof useRemoteRelay>;
+  lumarig: ReturnType<typeof useLumaRig>;
   song: Song;
   onSongChange: (song: Song) => void;
 }) {
@@ -2337,7 +2362,7 @@ function Connections({
     ],
     ["MIDI", "LumaRig MIDI (Virtual)", "Clock + Start/Stop"],
     ["Clock Sync", "Internal (LumaRig)", "Song tempo"],
-    ["Lighting", "LumaRig / Art-Net", "Runtime comes in Phase 4"],
+    ["Lighting", lumarig.peer?.name ?? "LumaRig", lumarig.state === "connected" ? "Direct bridge connected" : "Not connected"],
     ["Network", "Supabase Realtime", "Studio owns the remote relay session"]
   ];
 
@@ -2453,8 +2478,10 @@ function Connections({
                     ? "muted"
                     : title === "Network" && remote.status !== "online"
                       ? "muted"
-                      : title === "MIDI" || title === "Lighting"
+                      : title === "MIDI"
                         ? "muted"
+                        : title === "Lighting" && lumarig.state !== "connected"
+                          ? "muted"
                         : "ready"
                 }
               >
