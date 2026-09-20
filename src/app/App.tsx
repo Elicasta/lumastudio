@@ -28,7 +28,7 @@ import { chooseLocalVideo, createYouTubeClip } from "../services/video";
 import type { VideoClip, VideoProgram, VideoProgramState } from "../domain/video";
 import { VideoProgram as VideoProgramRenderer } from "../components/VideoProgram";
 import { fullscreenVideoOutput, openVideoOutput } from "../services/videoOutput";
-import { publishVideoOutputState } from "../services/videoOutputState";
+import { listenVideoOutputRequests, publishVideoOutputState } from "../services/videoOutputState";
 import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import {
@@ -100,6 +100,19 @@ export function App() {
       playing: Boolean(audio.status.playing || previewPlaying),
       sectionId: selectedSong.sections[currentSection]?.id
     }).catch(() => undefined);
+  }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong.sections, currentSection]);
+
+  useEffect(() => {
+    let stop: (() => void) | undefined;
+    void listenVideoOutputRequests(() => {
+      void publishVideoOutputState({
+        program: project.video,
+        positionSeconds: audio.status.positionSeconds ?? 0,
+        playing: Boolean(audio.status.playing || previewPlaying),
+        sectionId: selectedSong.sections[currentSection]?.id
+      });
+    }).then((unlisten) => { stop = unlisten; });
+    return () => stop?.();
   }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong.sections, currentSection]);
 
   const selectSetlistSong = useCallback(
