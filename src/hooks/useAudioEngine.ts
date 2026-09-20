@@ -14,6 +14,7 @@ import {
   setGuideTimeline,
   setNativeBusGain,
   setNativeBusMuted,
+  setNativeBusRoute,
   setNativeTrackGain,
   setNativeTrackMuted,
   setNativeTrackSolo,
@@ -187,6 +188,14 @@ export function useAudioEngine() {
       muted: boolean
     ) => {
       const next = await setNativeBusMuted(id, muted);
+      setStatus(next);
+    },
+    setBusRoute: async (
+      id: "music" | "click" | "guide",
+      outputLeft: number,
+      outputRight: number
+    ) => {
+      const next = await setNativeBusRoute(id, outputLeft, outputRight);
       setStatus(next);
     },
     setTrackGain: setNativeTrackGain,
