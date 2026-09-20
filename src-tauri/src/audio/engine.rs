@@ -503,6 +503,12 @@ impl AudioEngine {
                 output_left: self.realtime.master_bus.output_pair().0 + 1,
                 output_right: self.realtime.master_bus.output_pair().1 + 1,
             },
+            pad_bus: AudioBusStatus {
+                gain_db: self.realtime.pad_bus.gain_db(),
+                muted: self.realtime.pad_bus.muted(),
+                output_left: self.realtime.pad_bus.output_pair().0 + 1,
+                output_right: self.realtime.pad_bus.output_pair().1 + 1,
+            },
         }
     }
 }
