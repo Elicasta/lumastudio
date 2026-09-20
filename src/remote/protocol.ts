@@ -85,6 +85,7 @@ export interface RemoteStudioState {
     durationSeconds: number;
     bar: number;
     beat: number;
+    transitionActive: boolean;
     countInActive: boolean;
     countInBeat: number;
     countInTotal: number;
