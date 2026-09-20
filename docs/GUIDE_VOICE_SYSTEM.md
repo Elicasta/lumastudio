@@ -161,7 +161,9 @@ For an unknown custom Section, keep its custom label in the UI, do not invent or
 
 ## Routing contract
 
-The system should ultimately expose separate CLICK BUS, GUIDE BUS, MUSIC/STEM BUSES, and MASTER/FOH. A normal live configuration can route Click + Guide to IEMs while keeping them out of FOH. Voice events must be scheduled by the native audio clock, never React timers or the remote.
+The native engine now exposes separate MUSIC, CLICK, GUIDE, and MASTER stages. MUSIC, CLICK, and GUIDE each have an independent hardware output pair on the active audio device. Imported Click/Guide stems and generated count/voice cues converge on those same buses.
+
+A normal live configuration can route Music to outputs 1–2 and Click + Guide to a separate IEM pair such as outputs 3–4, while the Master stage remains the global safety gain/mute. Voice events are scheduled by the native audio clock, never React timers or the remote.
 
 ## Voice pack validation
 
@@ -184,3 +186,14 @@ Audio output routing
 ~~~
 
 Songs store preferences and Section labels. They do not store rendered voice phrases. This is what allows one recorded pack to work indefinitely.
+
+
+## Development voice pack
+
+For end-to-end testing on macOS:
+
+```bash
+npm run voice:dev
+```
+
+This uses the local macOS `say` and `afconvert` utilities to create all 44 required WAV tokens at 48 kHz/24-bit mono under `voice-packs/generated/`. The generated system-voice pack is a development convenience, not the final bundled production voice.
