@@ -9,6 +9,7 @@ import {
   chooseVoicePackDirectory,
   chooseWavTracks,
   getAudioStatus,
+  isNativeApp,
   loadVoicePack,
   loadWavSong,
   setGuideTimeline,
@@ -22,6 +23,8 @@ import {
   type NativeAudioTrack,
   type NativeGuideTimelineEvent
 } from "../services/audio";
+
+const VOICE_PACK_PATH_KEY = "lumarig.audio.voice-pack-path";
 
 export function useAudioEngine() {
   const [status, setStatus] = useState<NativeAudioStatus>({ initialized: false });
@@ -38,7 +41,22 @@ export function useAudioEngine() {
   }, []);
 
   useEffect(() => {
-    void refresh();
+    const savedVoicePack = localStorage.getItem(VOICE_PACK_PATH_KEY);
+
+    if (!savedVoicePack || !isNativeApp()) {
+      void refresh();
+      return;
+    }
+
+    void loadVoicePack(savedVoicePack)
+      .then(setStatus)
+      .catch((cause) => {
+        localStorage.removeItem(VOICE_PACK_PATH_KEY);
+        setError(
+          "Saved Guide voice pack could not be loaded: " + messageOf(cause)
+        );
+        void refresh();
+      });
   }, [refresh]);
 
   useEffect(() => {
@@ -80,6 +98,7 @@ export function useAudioEngine() {
       if (!directory) return null;
 
       const nextStatus = await loadVoicePack(directory);
+      localStorage.setItem(VOICE_PACK_PATH_KEY, directory);
       setStatus(nextStatus);
       return nextStatus.voicePack ?? null;
     } catch (cause) {
