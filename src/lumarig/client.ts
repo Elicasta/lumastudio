@@ -20,14 +20,15 @@ export class LumaRigClient {
       socket.onerror = () => { window.clearTimeout(timer); reject(new Error("Could not connect to LumaRig.")); };
     });
     socket.onmessage = (event) => this.handleMessage(event.data);
-    socket.onclose = () => { this.state = "disconnected"; this.peer = null; };
+    socket.onclose = () => { this.rejectPending("LumaRig disconnected."); this.state = "disconnected"; this.peer = null; };
     this.state = "connected";
     this.peer = peer;
     const hello = await this.send({ type: "hello", protocol: LUMARIG_BRIDGE_PROTOCOL, clientName: "LumaRig Studio" });
-    if (!hello.ok) throw new Error(hello.error ?? "LumaRig rejected Studio.");
+    if (!hello.ok) { await this.disconnect(); throw new Error(hello.error ?? "LumaRig rejected Studio."); }
   }
 
   async disconnect() {
+    this.rejectPending("LumaRig disconnected.");
     this.socket?.close();
     this.socket = null;
     this.peer = null;
@@ -59,4 +60,12 @@ export class LumaRigClient {
       this.state = "degraded";
     }
   }
+  private rejectPending(error: string) {
+    for (const [id, pending] of this.pending) {
+      window.clearTimeout(pending.timer);
+      pending.resolve({ id, ok: false, error });
+    }
+    this.pending.clear();
+  }
+
 }
