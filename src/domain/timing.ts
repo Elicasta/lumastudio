@@ -214,16 +214,17 @@ export function planManualSectionJump(
     };
   }
 
+  const currentMeterBeats = current.meter[0];
   const beatsRemainingInBar =
     current.beatProgress < 0.02
-      ? meterBeats - current.beat + 1
-      : meterBeats - current.beat;
+      ? currentMeterBeats - current.beat + 1
+      : currentMeterBeats - current.beat;
 
   const minimum = Math.max(1, settings.minBeats ?? 2);
   const countBeats =
     beatsRemainingInBar >= minimum
       ? beatsRemainingInBar
-      : beatsRemainingInBar + meterBeats;
+      : beatsRemainingInBar + currentMeterBeats;
 
   return {
     targetSectionId: targetSection.id,
