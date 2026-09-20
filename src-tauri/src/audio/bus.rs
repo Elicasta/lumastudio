@@ -1,4 +1,4 @@
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, Ordering};
 
 use super::model::AtomicF32;
 
@@ -7,6 +7,8 @@ pub struct BusControl {
     gain_db: AtomicF32,
     gain_linear: AtomicF32,
     muted: AtomicBool,
+    output_left: AtomicU16,
+    output_right: AtomicU16,
 }
 
 impl BusControl {
@@ -16,6 +18,8 @@ impl BusControl {
             gain_db: AtomicF32::new(gain_db),
             gain_linear: AtomicF32::new(db_to_linear(gain_db)),
             muted: AtomicBool::new(false),
+            output_left: AtomicU16::new(0),
+            output_right: AtomicU16::new(1),
         }
     }
 
@@ -36,6 +40,18 @@ impl BusControl {
         let gain_db = gain_db.clamp(-90.0, 12.0);
         self.gain_db.store(gain_db);
         self.gain_linear.store(db_to_linear(gain_db));
+    }
+
+    pub fn output_pair(&self) -> (u16, u16) {
+        (
+            self.output_left.load(Ordering::Relaxed),
+            self.output_right.load(Ordering::Relaxed),
+        )
+    }
+
+    pub fn set_output_pair(&self, left: u16, right: u16) {
+        self.output_left.store(left, Ordering::Relaxed);
+        self.output_right.store(right, Ordering::Relaxed);
     }
 
     pub fn muted(&self) -> bool {
@@ -69,6 +85,13 @@ mod tests {
 
         bus.set_muted(false);
         assert!((bus.gain_linear() - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn output_pair_is_independent_from_gain_and_mute() {
+        let bus = BusControl::new(0.0);
+        bus.set_output_pair(2, 3);
+        assert_eq!(bus.output_pair(), (2, 3));
     }
 
     #[test]
