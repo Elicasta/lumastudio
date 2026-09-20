@@ -6,14 +6,20 @@ import {
   audioStop,
   audioScheduleTransition,
   audioCancelTransition,
+  chooseVoicePackDirectory,
   chooseWavTracks,
   getAudioStatus,
+  loadVoicePack,
   loadWavSong,
+  setGuideTimeline,
+  setNativeBusGain,
+  setNativeBusMuted,
   setNativeTrackGain,
   setNativeTrackMuted,
   setNativeTrackSolo,
   type NativeAudioStatus,
-  type NativeAudioTrack
+  type NativeAudioTrack,
+  type NativeGuideTimelineEvent
 } from "../services/audio";
 
 export function useAudioEngine() {
@@ -64,6 +70,37 @@ export function useAudioEngine() {
     }
   }, []);
 
+  const chooseAndLoadVoicePack = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+
+    try {
+      const directory = await chooseVoicePackDirectory();
+      if (!directory) return null;
+
+      const nextStatus = await loadVoicePack(directory);
+      setStatus(nextStatus);
+      return nextStatus.voicePack ?? null;
+    } catch (cause) {
+      setError(messageOf(cause));
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const updateGuideTimeline = useCallback(
+    async (events: NativeGuideTimelineEvent[]) => {
+      setError(null);
+      try {
+        setStatus(await setGuideTimeline(events));
+      } catch (cause) {
+        setError(messageOf(cause));
+      }
+    },
+    []
+  );
+
   const playPause = useCallback(async () => {
     setError(null);
     try {
@@ -97,7 +134,13 @@ export function useAudioEngine() {
     firstCountDelaySeconds: number;
     beatSeconds: number;
     countBeats: number;
+    clickEnabled: boolean;
     keepAudio: boolean;
+    guideEvents?: Array<{
+      offsetPulses: number;
+      token: string;
+      gainDb?: number;
+    }>;
   }) => {
     setError(null);
     try {
@@ -125,11 +168,27 @@ export function useAudioEngine() {
     hasLoadedAudio: (status.loadedTracks ?? 0) > 0,
     refresh,
     chooseAndLoad,
+    chooseAndLoadVoicePack,
+    updateGuideTimeline,
     playPause,
     stop,
     seek,
     scheduleTransition,
     cancelTransition,
+    setBusGain: async (
+      id: "music" | "click" | "guide" | "master",
+      gainDb: number
+    ) => {
+      const next = await setNativeBusGain(id, gainDb);
+      setStatus(next);
+    },
+    setBusMuted: async (
+      id: "music" | "click" | "guide" | "master",
+      muted: boolean
+    ) => {
+      const next = await setNativeBusMuted(id, muted);
+      setStatus(next);
+    },
     setTrackGain: setNativeTrackGain,
     setTrackMuted: setNativeTrackMuted,
     setTrackSolo: setNativeTrackSolo
