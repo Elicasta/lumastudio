@@ -1312,3 +1312,19 @@ button:hover { border-color: #47657d; background: #172a39; }
     width:100%;
   }
 }
+
+.remote-session-buttons {
+  display:grid;
+  grid-template-columns:1fr;
+  gap:7px;
+}
+.remote-session-buttons button:last-child {
+  border-color:#51313a;
+  background:#1a1015;
+  color:#d7a8b4;
+}
+@media(max-width:1200px) {
+  .remote-session-buttons {
+    grid-template-columns:repeat(2,minmax(130px,1fr));
+  }
+}
