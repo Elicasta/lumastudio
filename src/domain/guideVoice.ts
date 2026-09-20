@@ -1,4 +1,5 @@
 import {
+  barBeatToSeconds,
   countPulseForMeter,
   sectionStartSeconds,
   type CountPulse
@@ -268,6 +269,14 @@ export function buildAutomaticGuideTimeline(song: Song): Array<{
         token: event.token
       });
     }
+  }
+
+  for (const marker of song.guideMarkers) {
+    events.push({
+      atSeconds: barBeatToSeconds(song, marker.bar, marker.beat),
+      token: marker.token,
+      gainDb: marker.gainDb
+    });
   }
 
   return events.sort((a, b) => a.atSeconds - b.atSeconds);
