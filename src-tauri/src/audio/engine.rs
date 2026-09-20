@@ -62,6 +62,7 @@ pub struct AudioEngineStatus {
     pub peak_right: f32,
     pub device_error: bool,
     pub loaded_tracks: usize,
+    pub transition_active: bool,
     pub count_in_active: bool,
     pub count_in_beat: u64,
     pub count_in_total: u64,
@@ -254,7 +255,8 @@ impl AudioEngine {
             peak_right,
             device_error: self.realtime.device_error.load(Ordering::Acquire),
             loaded_tracks: mix.tracks.len(),
-            count_in_active: self.realtime.transition.active(),
+            transition_active: self.realtime.transition.active(),
+            count_in_active: self.realtime.transition.active() && count_in_total > 0,
             count_in_beat,
             count_in_total,
         }
