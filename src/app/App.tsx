@@ -550,7 +550,7 @@ export function App() {
               />
               {buildTool === "arrangement" && <Arrangement song={selectedSong} onSongChange={setSelectedSong} />}
               {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
-              {buildTool === "pads" && <Pads />}
+              {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
               {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
               {buildTool === "midi" && <UnavailableFeature title="MIDI" text="Native MIDI routing is being wired into the v0.3 runtime." />}
               {buildTool === "video" && <UnavailableFeature title="Video / NDI" text="Video compositor, display output and NDI sender are being wired into the v0.3 runtime." />}
@@ -1927,13 +1927,13 @@ const padNames = [
   "Ritual"
 ];
 
-function Pads() {
+function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlot[]; initialPadCount?: 12 | 16; onChange: (pads: PadSlot[], padCount: 12 | 16) => void }) {
   const [active, setActive] = useState(0);
-  const [padCount, setPadCount] = useState<12 | 16>(12);
+  const [padCount, setPadCount] = useState<12 | 16>(initialPadCount ?? 12);
   const [playing, setPlaying] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
-  const [pads, setPads] = useState<PadSlot[]>(() =>
-    Array.from({ length: 16 }, (_, index) => padNames[index] ?? `Pad ${index + 1}`).map((name, index) => ({
+  const [pads, setPads] = useState<PadSlot[]>(() => {
+    const defaults = Array.from({ length: 16 }, (_, index) => padNames[index] ?? `Pad ${index + 1}`).map((name, index) => ({
       id: `pad-${index + 1}`,
       name,
       mode: "latch",
@@ -1942,9 +1942,12 @@ function Pads() {
       width: 70,
       attackMs: 10,
       releaseMs: 1800
-    }))
-  );
+    }));
+    return defaults.map((slot, index) => initialPads?.[index] ? { ...slot, ...initialPads[index] } : slot);
+  });
   const pad = pads[active];
+
+  useEffect(() => { onChange(pads, padCount); }, [pads, padCount]);
 
   useEffect(() => () => { for (let index = 0; index < 16; index += 1) void stopNativePad(index); }, []);
 
