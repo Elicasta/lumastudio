@@ -100,7 +100,8 @@ export function buildRemoteStudioState({
     })),
     currentSectionIndex: safeSectionIndex,
     queuedSectionIndex:
-      safeSectionIndex < song.sections.length - 1 ? safeSectionIndex + 1 : null,
+      queuedSectionIndex ??
+      (safeSectionIndex < song.sections.length - 1 ? safeSectionIndex + 1 : null),
     transport: {
       playing,
       positionSeconds,
