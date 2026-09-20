@@ -25,6 +25,8 @@ export const goodness: Song = {
   meter: [4, 4],
   durationSeconds: 318,
   status: "ready",
+  countIn: { mode: "bars", value: 1 },
+  manualJumpCountIn: { mode: "adaptive", minBeats: 2 },
   tracks: [
     track("click", "Click", "click", "#cbd5e1"),
     track("guide", "Guide", "guide", "#60a5fa"),
