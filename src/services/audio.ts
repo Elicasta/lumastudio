@@ -14,6 +14,9 @@ export interface NativeAudioStatus {
   peakRight?: number;
   deviceError?: boolean;
   loadedTracks?: number;
+  countInActive?: boolean;
+  countInBeat?: number;
+  countInTotal?: number;
   lastError?: string | null;
 }
 
@@ -113,6 +116,35 @@ export async function audioStop(): Promise<NativeAudioStatus> {
 export async function audioSeek(seconds: number): Promise<NativeAudioStatus> {
   return invoke<NativeAudioStatus>("audio_seek", { seconds });
 }
+export async function audioScheduleTransition({
+  targetSeconds,
+  delaySeconds,
+  firstCountDelaySeconds,
+  beatSeconds,
+  countBeats,
+  keepAudio
+}: {
+  targetSeconds: number;
+  delaySeconds: number;
+  firstCountDelaySeconds: number;
+  beatSeconds: number;
+  countBeats: number;
+  keepAudio: boolean;
+}): Promise<NativeAudioStatus> {
+  return invoke<NativeAudioStatus>("audio_schedule_transition", {
+    targetSeconds,
+    delaySeconds,
+    firstCountDelaySeconds,
+    beatSeconds,
+    countBeats,
+    keepAudio
+  });
+}
+
+export async function audioCancelTransition(): Promise<NativeAudioStatus> {
+  return invoke<NativeAudioStatus>("audio_cancel_transition");
+}
+
 
 export async function setNativeTrackGain(id: string, gainDb: number): Promise<void> {
   await invoke("audio_set_track_gain", { id, gainDb });
