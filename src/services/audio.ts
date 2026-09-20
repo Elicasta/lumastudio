@@ -5,6 +5,8 @@ import type { TrackKind } from "../domain/types";
 export interface NativeAudioBusStatus {
   gainDb: number;
   muted: boolean;
+  outputLeft: number;
+  outputRight: number;
 }
 
 export interface NativeVoicePackInfo {
@@ -223,6 +225,18 @@ export async function setNativeBusMuted(
   muted: boolean
 ): Promise<NativeAudioStatus> {
   return invoke<NativeAudioStatus>("audio_set_bus_muted", { id, muted });
+}
+
+export async function setNativeBusRoute(
+  id: "music" | "click" | "guide",
+  outputLeft: number,
+  outputRight: number
+): Promise<NativeAudioStatus> {
+  return invoke<NativeAudioStatus>("audio_set_bus_route", {
+    id,
+    outputLeft,
+    outputRight
+  });
 }
 
 export async function setNativeTrackGain(id: string, gainDb: number): Promise<void> {
