@@ -21,7 +21,9 @@ pub fn run() {
             audio::audio_clear_loop,
             audio::audio_set_track_gain,
             audio::audio_set_track_muted,
-            audio::audio_set_track_solo
+            audio::audio_set_track_solo,
+            audio::audio_schedule_transition,
+            audio::audio_cancel_transition
         ])
         .run(tauri::generate_context!())
         .expect("error while running LumaRig Studio");
