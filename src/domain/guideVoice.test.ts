@@ -5,7 +5,8 @@ import {
   planGuideCount,
   planSongStartGuide,
   requiredCoreVoiceTokens,
-  sectionTokenForName
+  sectionTokenForName,
+  validateVoicePackManifest
 } from "./guideVoice";
 
 describe("guide voice planner", () => {
@@ -90,6 +91,43 @@ describe("guide voice planner", () => {
     const plan = planSongStartGuide(goodness);
     expect(plan.events[0].token).toBe("section.intro");
     expect(plan.events).toHaveLength(4);
+  });
+
+  it("accepts a complete reusable voice pack manifest", () => {
+    const assets = requiredCoreVoiceTokens().map((token) => ({
+      token,
+      file: token + ".wav"
+    }));
+    const validation = validateVoicePackManifest({
+      id: "core-en-neutral-f",
+      name: "Core English Neutral Female",
+      locale: "en-US",
+      voice: "Neutral Female",
+      version: 1,
+      sampleRate: 48_000,
+      channels: 1,
+      assets
+    });
+
+    expect(validation.valid).toBe(true);
+    expect(validation.errors).toEqual([]);
+  });
+
+  it("rejects an incomplete voice pack", () => {
+    const validation = validateVoicePackManifest({
+      id: "broken",
+      name: "Broken",
+      locale: "en-US",
+      voice: "Test",
+      version: 1,
+      sampleRate: 48_000,
+      channels: 1,
+      assets: []
+    });
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors).toContain("Missing required voice token: count.1");
+    expect(validation.errors).toContain("Missing required voice token: section.chorus");
   });
 
   it("defines a finite reusable core voice vocabulary", () => {
