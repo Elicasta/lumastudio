@@ -181,7 +181,7 @@ impl AudioEngine {
                 events: Vec::new(),
             }
         } else if pack.loaded() {
-            prepare_timeline(requests, &pack, self.sample_rate, revision)?
+            prepare_timeline(requests, &**pack, self.sample_rate, revision)?
         } else {
             GuideSchedule {
                 revision,
@@ -257,7 +257,7 @@ impl AudioEngine {
         } else if pack.loaded() {
             prepare_transition(
                 guide_events,
-                &pack,
+                &**pack,
                 total_frames,
                 beat_frames,
                 revision,
@@ -400,7 +400,7 @@ impl AudioEngine {
             count_in_active: self.realtime.transition.active() && count_in_total > 0,
             count_in_beat,
             count_in_total,
-            voice_pack: VoicePackInfo::from_pack(&voice_pack),
+            voice_pack: VoicePackInfo::from_pack(&**voice_pack),
             music_bus: AudioBusStatus {
                 gain_db: self.realtime.music_bus.gain_db(),
                 muted: self.realtime.music_bus.muted(),
