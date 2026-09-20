@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { isNativeApp } from "./audio";
@@ -38,6 +39,16 @@ export async function choosePadAudio(): Promise<{ path: string; name: string } |
 function fileUrl(path: string) {
   return convertFileSrc(path);
 }
+
+export async function loadNativePad(index: number, slot: PadSlot) {
+  if (!slot.path) throw new Error("Load audio into this pad first.");
+  if (!/\.(wav|wave)$/i.test(slot.path)) throw new Error("Native pad engine currently supports WAV. MP3/AIFF decoding is next.");
+  await invoke("audio_load_pad", { index, path: slot.path, looped: slot.mode !== "one-shot", gainDb: slot.gainDb, width: slot.width / 100, octave: slot.octave });
+}
+
+export async function triggerNativePad(index: number) { await invoke("audio_trigger_pad", { index }); }
+export async function stopNativePad(index: number) { await invoke("audio_stop_pad", { index }); }
+export async function configureNativePad(index: number, slot: PadSlot) { await invoke("audio_configure_pad", { index, gainDb: slot.gainDb, width: slot.width / 100 }); }
 
 export function triggerPad(slot: PadSlot) {
   if (!slot.path) throw new Error("Load audio into this pad first.");
