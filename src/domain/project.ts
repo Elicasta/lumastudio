@@ -1,6 +1,7 @@
 import type { Setlist, Song } from "./types";
 import type { PadSlot } from "../services/pads";
 import type { VideoProgram } from "./video";
+import { defaultMidiSettings, type MidiSettings } from "./midi";
 
 export const PROJECT_SCHEMA_VERSION = 1;
 
@@ -14,6 +15,7 @@ export interface StudioProject {
   padCount?: 12 | 16;
   pads?: PadSlot[];
   video?: VideoProgram;
+  midi?: MidiSettings;
   lightingBindings?: Record<string, {
     lumarigShowId: string;
     songId: string;
@@ -33,7 +35,8 @@ export function createProject(name: string, songs: Song[] = []): StudioProject {
     updatedAt: new Date().toISOString(),
     padCount: 12,
     pads: [],
-    video: { clips: [], output: { displayEnabled: false, ndiEnabled: false, ndiName: "LumaRig Studio Program" } },
+    video: { clips: [], state: "live", output: { displayEnabled: false, ndiEnabled: false, ndiName: "LumaRig Studio Program" } },
+    midi: defaultMidiSettings(),
     lightingBindings: {}
   };
 }
