@@ -284,6 +284,73 @@ export function requiredCoreVoiceTokens(): GuideToken[] {
   ];
 }
 
+
+export interface VoicePackValidation {
+  valid: boolean;
+  errors: string[];
+  warnings: string[];
+}
+
+export function validateVoicePackManifest(
+  manifest: VoicePackManifest
+): VoicePackValidation {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  if (!manifest.id.trim()) errors.push("Voice pack id is required.");
+  if (!manifest.name.trim()) errors.push("Voice pack name is required.");
+  if (!manifest.locale.trim()) errors.push("Voice pack locale is required.");
+  if (!manifest.voice.trim()) errors.push("Voice label is required.");
+  if (!Number.isInteger(manifest.version) || manifest.version < 1) {
+    errors.push("Voice pack version must be a positive integer.");
+  }
+  if (manifest.sampleRate < 8_000 || manifest.sampleRate > 192_000) {
+    errors.push("Voice pack sample rate is outside the supported range.");
+  }
+  if (manifest.channels !== 1 && manifest.channels !== 2) {
+    errors.push("Voice pack channels must be mono or stereo.");
+  }
+
+  const seen = new Set<string>();
+  for (const asset of manifest.assets) {
+    if (seen.has(asset.token)) {
+      errors.push("Duplicate voice token: " + asset.token);
+    }
+    seen.add(asset.token);
+
+    if (!asset.file.trim()) {
+      errors.push("Voice token has no file: " + asset.token);
+    }
+    if (asset.onsetMs !== undefined && asset.onsetMs < 0) {
+      errors.push("Voice token has a negative onset: " + asset.token);
+    }
+    if (
+      asset.gainDb !== undefined &&
+      (!Number.isFinite(asset.gainDb) || asset.gainDb < -60 || asset.gainDb > 24)
+    ) {
+      errors.push("Voice token has an invalid gain trim: " + asset.token);
+    }
+  }
+
+  for (const token of requiredCoreVoiceTokens()) {
+    if (!seen.has(token)) {
+      errors.push("Missing required voice token: " + token);
+    }
+  }
+
+  for (const asset of manifest.assets) {
+    if (!requiredCoreVoiceTokens().includes(asset.token)) {
+      warnings.push("Optional or custom voice token: " + asset.token);
+    }
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+    warnings
+  };
+}
+
 function clampInteger(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.max(min, Math.min(max, Math.round(value)));
