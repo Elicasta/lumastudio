@@ -18,6 +18,7 @@ arc-swap = "1.7"
 audioadapter-buffers = "5.1"
 cpal = "0.18.2"
 hound = "3.5"
+midir = "0.10"
 symphonia = { version = "0.5", features = ["mp3", "aiff", "pcm"] }
 rubato = { version = "5.0", features = ["fft_resampler"] }
 serde = { version = "1", features = ["derive"] }
