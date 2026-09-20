@@ -78,6 +78,10 @@ export interface RemoteStudioState {
     durationSeconds: number;
     bar: number;
     beat: number;
+    countInActive: boolean;
+    countInBeat: number;
+    countInTotal: number;
+    queuedSectionId: string | null;
   };
   pads: Array<{
     id: string;
