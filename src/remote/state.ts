@@ -1,3 +1,4 @@
+import { musicalPositionAtSeconds } from "../domain/timing";
 import type { Setlist, Song } from "../domain/types";
 import type { NativeAudioStatus } from "../services/audio";
 import { REMOTE_PROTOCOL_VERSION, type RemoteStudioState } from "./protocol";
@@ -37,13 +38,15 @@ export function buildRemoteStudioState({
   song,
   currentSectionIndex,
   previewPlaying,
-  audioStatus
+  audioStatus,
+  queuedSectionIndex = null
 }: {
   setlist: Setlist;
   song: Song;
   currentSectionIndex: number;
   previewPlaying: boolean;
   audioStatus: NativeAudioStatus;
+  queuedSectionIndex?: number | null;
 }): RemoteStudioState {
   const safeSectionIndex = clampSectionIndex(song, currentSectionIndex);
   const currentSection = song.sections[safeSectionIndex];
@@ -56,6 +59,8 @@ export function buildRemoteStudioState({
   const positionSeconds = hasNativeAudio
     ? audioStatus.positionSeconds ?? 0
     : 0;
+
+  const musicalPosition = musicalPositionAtSeconds(song, positionSeconds);
 
   const audioTracks = song.tracks.filter(
     (track) => !["midi", "lighting", "video"].includes(track.kind)
@@ -100,8 +105,15 @@ export function buildRemoteStudioState({
       playing,
       positionSeconds,
       durationSeconds,
-      bar: currentSection?.startBar ?? 1,
-      beat: 1
+      bar: musicalPosition.bar,
+      beat: musicalPosition.beat,
+      countInActive: Boolean(audioStatus.countInActive),
+      countInBeat: audioStatus.countInBeat ?? 0,
+      countInTotal: audioStatus.countInTotal ?? 0,
+      queuedSectionId:
+        queuedSectionIndex !== null
+          ? song.sections[queuedSectionIndex]?.id ?? null
+          : null
     },
     pads: padNames.map((name, index) => ({
       id: "pad-" + (index + 1),
