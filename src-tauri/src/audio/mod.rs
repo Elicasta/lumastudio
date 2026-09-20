@@ -5,6 +5,7 @@ mod guide;
 mod media;
 mod meter;
 mod model;
+mod pad;
 mod service;
 mod transport;
 mod transition;
