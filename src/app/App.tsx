@@ -58,9 +58,12 @@ import { useAudioEngine, type AudioEngineController } from "../hooks/useAudioEng
 import type { NativeAudioStatus, NativeAudioTrack } from "../services/audio";
 import { choosePadAudio, configureNativePad, loadNativePad, releaseNativePad, stopNativePad, triggerNativePad, type PadSlot } from "../services/pads";
 import { IntegrationsPage } from "../components/IntegrationsPage";
+import { PresentationEditor } from "../components/PresentationEditor";
 import { defaultIntegrationSettings } from "../domain/integrations";
+import { cueIdsBeforePosition, duePresentationCues } from "../domain/presentation";
 import { useProPresenter } from "../hooks/useProPresenter";
 import type { PlanningCenterPlanImport } from "../services/planningCenter";
+import { normalizeProPresenterName } from "../services/propresenter";
 
 const workspaceNav: Array<{ page: Workspace; label: string; icon: typeof Music2 }> = [
   { page: "import", label: "Import", icon: Upload },
@@ -74,6 +77,7 @@ const buildNav: Array<{ tool: BuildTool; label: string; icon: typeof Music2 }> =
   { tool: "mixer", label: "Mixer", icon: SlidersHorizontal },
   { tool: "pads", label: "Pads", icon: Grid2X2 },
   { tool: "lighting", label: "Lighting", icon: Lightbulb },
+  { tool: "presentation", label: "Presentation", icon: Radio },
   { tool: "midi", label: "MIDI", icon: Radio },
   { tool: "video", label: "Video / NDI", icon: Clapperboard }
 ];
@@ -104,6 +108,94 @@ export function App() {
   const integrationSettings = project.integrations ?? defaultIntegrationSettings();
   const proPresenter = useProPresenter(integrationSettings.propresenter, selectedSong, currentSection);
   const lastDispatchedSectionRef = useRef<string | null>(null);
+  const presentationRuntimeRef = useRef({
+    songId: "",
+    lastPosition: -0.001,
+    fired: new Set<string>()
+  });
+  const presentationQueueRef = useRef<Array<"next" | "previous">>([]);
+  const presentationQueueDrainingRef = useRef(false);
+
+  const drainPresentationQueue = useCallback(async () => {
+    if (presentationQueueDrainingRef.current) return;
+    presentationQueueDrainingRef.current = true;
+    try {
+      while (presentationQueueRef.current.length > 0) {
+        const action = presentationQueueRef.current.shift();
+        if (action === "next") await proPresenter.next();
+        if (action === "previous") await proPresenter.previous();
+      }
+    } finally {
+      presentationQueueDrainingRef.current = false;
+    }
+  }, [proPresenter.next, proPresenter.previous]);
+
+  useEffect(() => {
+    const position = Math.max(0, audio.status.positionSeconds ?? 0);
+    const runtime = presentationRuntimeRef.current;
+    const automation = selectedSong.presentation;
+    const presenterName = proPresenter.state.presentationName;
+    const presentationMatches = Boolean(
+      presenterName
+      && normalizeProPresenterName(presenterName) === normalizeProPresenterName(selectedSong.title)
+    );
+
+    if (runtime.songId !== selectedSong.id) {
+      runtime.songId = selectedSong.id;
+      runtime.lastPosition = Math.max(-0.001, position - 0.05);
+      runtime.fired = cueIdsBeforePosition(selectedSong, Math.max(0, position - 0.05));
+      presentationQueueRef.current = [];
+    }
+
+    const canAuto =
+      automation?.mode === "full-auto"
+      && integrationSettings.propresenter.enabled
+      && proPresenter.state.connected
+      && presentationMatches
+      && Boolean(audio.status.playing)
+      && !audio.status.transitionActive;
+
+    if (!canAuto) {
+      runtime.lastPosition = position;
+      if (!proPresenter.state.connected || !presentationMatches || automation?.mode !== "full-auto") {
+        runtime.fired = cueIdsBeforePosition(selectedSong, position);
+        presentationQueueRef.current = [];
+      }
+      return;
+    }
+
+    const delta = position - runtime.lastPosition;
+    if (delta < -0.1 || delta > 1.5) {
+      runtime.fired = cueIdsBeforePosition(selectedSong, position);
+      runtime.lastPosition = position;
+      presentationQueueRef.current = [];
+      return;
+    }
+
+    const due = duePresentationCues(
+      selectedSong,
+      runtime.lastPosition,
+      position,
+      runtime.fired
+    );
+    runtime.lastPosition = position;
+
+    if (due.length === 0) return;
+    for (const cue of due) {
+      runtime.fired.add(cue.id);
+      presentationQueueRef.current.push(cue.action);
+    }
+    void drainPresentationQueue();
+  }, [
+    audio.status.playing,
+    audio.status.positionSeconds,
+    audio.status.transitionActive,
+    drainPresentationQueue,
+    integrationSettings.propresenter.enabled,
+    proPresenter.state.connected,
+    proPresenter.state.presentationName,
+    selectedSong
+  ]);
 
   useEffect(() => {
     void publishVideoOutputState({
@@ -630,6 +722,15 @@ export function App() {
               {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
               {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
               {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
+              {buildTool === "presentation" && (
+                <PresentationEditor
+                  song={selectedSong}
+                  audio={audio}
+                  proPresenter={proPresenter}
+                  globalSectionFollowEnabled={integrationSettings.propresenter.followSections}
+                  onSongChange={setSelectedSong}
+                />
+              )}
               {buildTool === "midi" && <MidiEditor settings={project.midi ?? { channel: 1 }} sections={selectedSong.sections} onSettingsChange={(midi) => setProject((current) => ({ ...current, midi, updatedAt: new Date().toISOString() }))} onSectionsChange={(sections) => { const song = { ...selectedSong, sections }; setSelectedSong(song); setProject((current) => ({ ...current, setlist: { ...current.setlist, songs: current.setlist.songs.map((item) => item.id === song.id ? song : item) }, updatedAt: new Date().toISOString() })); }} />}
               {buildTool === "video" && <VideoEditor program={project.video} sections={selectedSong.sections} positionSeconds={audio.status.positionSeconds ?? 0} playing={Boolean(audio.status.playing || previewPlaying)} sectionId={selectedSong.sections[currentSection]?.id} onChange={(video) => setProject((current) => ({ ...current, video, updatedAt: new Date().toISOString() }))} />}
             </>
