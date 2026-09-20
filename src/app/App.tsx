@@ -24,8 +24,9 @@ import {
 import { demoSetlist, goodness } from "../domain/demo";
 import { createProject } from "../domain/project";
 import { openProject, saveProject } from "../services/projectStore";
-import { chooseLocalVideo, createYouTubeClip, localVideoUrl, youtubeEmbedUrl } from "../services/video";
+import { chooseLocalVideo, createYouTubeClip } from "../services/video";
 import type { VideoClip, VideoProgram } from "../domain/video";
+import { VideoProgram as VideoProgramRenderer } from "../components/VideoProgram";
 import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import {
@@ -555,7 +556,7 @@ export function App() {
               {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
               {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
               {buildTool === "midi" && <UnavailableFeature title="MIDI" text="Native MIDI routing is being wired into the v0.3 runtime." />}
-              {buildTool === "video" && <VideoEditor program={project.video} sections={selectedSong.sections} onChange={(video) => setProject((current) => ({ ...current, video, updatedAt: new Date().toISOString() }))} />}
+              {buildTool === "video" && <VideoEditor program={project.video} sections={selectedSong.sections} positionSeconds={audio.status.positionSeconds ?? 0} playing={Boolean(audio.status.playing || previewPlaying)} sectionId={selectedSong.sections[currentSection]?.id} onChange={(video) => setProject((current) => ({ ...current, video, updatedAt: new Date().toISOString() }))} />}
             </>
           )}
 
@@ -667,7 +668,7 @@ function ToolRail<T extends string>({
   );
 }
 
-function VideoEditor({ program, sections, onChange }: { program?: VideoProgram; sections: Song["sections"]; onChange: (program: VideoProgram) => void }) {
+function VideoEditor({ program, sections, positionSeconds, playing, sectionId, onChange }: { program?: VideoProgram; sections: Song["sections"]; positionSeconds: number; playing: boolean; sectionId?: string; onChange: (program: VideoProgram) => void }) {
   const value: VideoProgram = program ?? { clips: [], output: { displayEnabled: false, ndiEnabled: false, ndiName: "LumaRig Studio Program" } };
   const [selectedId, setSelectedId] = useState<string | null>(value.clips[0]?.id ?? null);
   const [youtubeUrl, setYoutubeUrl] = useState("");
@@ -693,10 +694,7 @@ function VideoEditor({ program, sections, onChange }: { program?: VideoProgram; 
     <div className="video-editor-grid">
       <div className="panel video-library"><h2>Clips</h2>{value.clips.length === 0 && <p>No video clips yet.</p>}{value.clips.map((clip) => <button key={clip.id} className={clip.id === selected?.id ? "active" : ""} onClick={() => setSelectedId(clip.id)}><strong>{clip.name}</strong><span>{clip.source.kind === "local" ? clip.source.format.toUpperCase() : "YouTube"} · {clip.sourceInSeconds.toFixed(1)}s → {clip.sourceOutSeconds?.toFixed(1) ?? "end"}</span></button>)}</div>
       <div className="panel video-preview">
-        {selected ? selected.source.kind === "local"
-          ? <video key={selected.id} src={localVideoUrl(selected.source.path)} controls muted />
-          : <iframe key={selected.id + selected.sourceInSeconds + selected.sourceOutSeconds} src={youtubeEmbedUrl(selected.source.videoId, selected.sourceInSeconds, selected.sourceOutSeconds)} allow="autoplay; encrypted-media; picture-in-picture" title={selected.name} />
-          : <div className="video-empty">Add an MP4, MOV, or YouTube source.</div>}
+        <VideoProgramRenderer program={value} positionSeconds={positionSeconds} playing={playing} sectionId={sectionId} preview />
       </div>
       {selected && <div className="panel video-inspector"><h2>Clip Editor</h2>
         <label><span>Name</span><input value={selected.name} onChange={(e) => updateClip(selected.id,{name:e.currentTarget.value})}/></label>
