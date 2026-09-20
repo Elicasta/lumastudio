@@ -380,6 +380,8 @@ impl AudioEngine {
             .current_count_beat()
             .unwrap_or((0, 0));
 
+        let voice_pack = self.realtime.voice_pack.load();
+
         AudioEngineStatus {
             initialized: true,
             device_name: self.device_name.clone(),
@@ -396,6 +398,23 @@ impl AudioEngine {
             count_in_active: self.realtime.transition.active() && count_in_total > 0,
             count_in_beat,
             count_in_total,
+            voice_pack: VoicePackInfo::from_pack(&voice_pack),
+            music_bus: AudioBusStatus {
+                gain_db: self.realtime.music_bus.gain_db(),
+                muted: self.realtime.music_bus.muted(),
+            },
+            click_bus: AudioBusStatus {
+                gain_db: self.realtime.click_bus.gain_db(),
+                muted: self.realtime.click_bus.muted(),
+            },
+            guide_bus: AudioBusStatus {
+                gain_db: self.realtime.guide_bus.gain_db(),
+                muted: self.realtime.guide_bus.muted(),
+            },
+            master_bus: AudioBusStatus {
+                gain_db: self.realtime.master_bus.gain_db(),
+                muted: self.realtime.master_bus.muted(),
+            },
         }
     }
 }
