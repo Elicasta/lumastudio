@@ -122,7 +122,7 @@ impl AudioEngine {
             .default_output_config()
             .map_err(|error| AudioError::Device(error.to_string()))?;
 
-        let sample_rate = supported.sample_rate().0;
+        let sample_rate = supported.sample_rate();
         let output_channels = supported.channels();
         let sample_format = supported.sample_format();
         let config = supported.config();
@@ -481,7 +481,7 @@ where
     T: SizedSample + Sample + FromSample<f32>,
 {
     let channels = config.channels as usize;
-    let sample_rate = config.sample_rate.0;
+    let sample_rate = config.sample_rate;
     let mut guide_renderer = GuideRenderer::default();
 
     device
