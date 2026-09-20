@@ -14,6 +14,7 @@ export interface NativeAudioStatus {
   peakRight?: number;
   deviceError?: boolean;
   loadedTracks?: number;
+  transitionActive?: boolean;
   countInActive?: boolean;
   countInBeat?: number;
   countInTotal?: number;
