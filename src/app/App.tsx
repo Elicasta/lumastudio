@@ -47,6 +47,7 @@ import { buildRemoteStudioState } from "../remote/state";
 import { checkForAppUpdate } from "../services/updater";
 import { useAudioEngine, type AudioEngineController } from "../hooks/useAudioEngine";
 import type { NativeAudioStatus, NativeAudioTrack } from "../services/audio";
+import { choosePadAudio, releasePad, stopAllPads, triggerPad, type PadSlot } from "../services/pads";
 
 const workspaceNav: Array<{ page: Workspace; label: string; icon: typeof Music2 }> = [
   { page: "import", label: "Import", icon: Upload },
@@ -1927,43 +1928,104 @@ const padNames = [
 
 function Pads() {
   const [active, setActive] = useState(0);
+  const [playing, setPlaying] = useState<Set<string>>(new Set());
+  const [error, setError] = useState("");
+  const [pads, setPads] = useState<PadSlot[]>(() =>
+    padNames.map((name, index) => ({
+      id: `pad-${index + 1}`,
+      name,
+      mode: "latch",
+      gainDb: 0,
+      octave: 0,
+      width: 70,
+      attackMs: 10,
+      releaseMs: 1800
+    }))
+  );
+  const pad = pads[active];
+
+  useEffect(() => () => stopAllPads(), []);
+
+  function updatePad(update: Partial<PadSlot>) {
+    setPads((current) => current.map((item, index) => index === active ? { ...item, ...update } : item));
+  }
+
+  async function replacePad() {
+    try {
+      setError("");
+      const file = await choosePadAudio();
+      if (file) updatePad({ path: file.path, name: file.name });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  function pressPad(slot: PadSlot, index: number) {
+    setActive(index);
+    try {
+      setError("");
+      const nowPlaying = triggerPad(slot);
+      setPlaying((current) => {
+        const next = new Set(current);
+        if (nowPlaying) next.add(slot.id); else next.delete(slot.id);
+        return next;
+      });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
+  function liftPad(slot: PadSlot) {
+    if (slot.mode !== "hold") return;
+    releasePad(slot);
+    setPlaying((current) => {
+      const next = new Set(current); next.delete(slot.id); return next;
+    });
+  }
+
   return (
     <section>
       <div className="page-head">
         <div>
           <h1>Pad Player</h1>
-          <p>12 customizable background pads · Bank A</p>
+          <p>12 customizable background pads · local audio</p>
         </div>
-        <button>+ Bank</button>
+        <button onClick={() => { stopAllPads(); setPlaying(new Set()); }}>Stop All</button>
       </div>
+
+      {error && <div className="audio-error panel">{error}</div>}
 
       <div className="pads-layout">
         <div className="pad-grid">
-          {padNames.map((name, index) => (
+          {pads.map((slot, index) => (
             <button
-              key={name}
-              className={index === active ? "pad active-pad" : "pad"}
-              onClick={() => setActive(index)}
+              key={slot.id}
+              className={playing.has(slot.id) ? "pad active-pad" : "pad"}
+              onPointerDown={() => pressPad(slot, index)}
+              onPointerUp={() => liftPad(slot)}
+              onPointerLeave={() => liftPad(slot)}
             >
               <span>{index + 1}</span>
-              <Waveform
-                seed={index}
-                color={["#fbbf24", "#60a5fa", "#f472b6", "#2dd4bf"][index % 4]}
-              />
-              <strong>{name}</strong>
+              <Waveform seed={index} color={["#fbbf24", "#60a5fa", "#f472b6", "#2dd4bf"][index % 4]} />
+              <strong>{slot.name}</strong>
+              <small>{slot.path ? slot.mode : "Empty"}</small>
             </button>
           ))}
         </div>
 
         <div className="panel pad-inspector">
           <small>PAD {active + 1}</small>
-          <h2>{padNames[active]}</h2>
+          <h2>{pad.name}</h2>
           <Waveform seed={active} color="#fbbf24" />
-          <Field label="Octave" value="0" />
-          <Field label="Wideness" value="70%" />
-          <Field label="Volume" value="0.0 dB" />
-          <Field label="Release" value="1.8 s" />
-          <button className="primary">Replace WAV / MP3</button>
+          <label><span>Mode</span><select value={pad.mode} onChange={(e) => updatePad({ mode: e.currentTarget.value as PadSlot["mode"] })}>
+            <option value="one-shot">One Shot</option><option value="loop">Loop</option><option value="hold">Hold</option><option value="latch">Latch</option>
+          </select></label>
+          <label><span>Octave</span><input type="range" min="-2" max="2" step="1" value={pad.octave} onChange={(e) => updatePad({ octave: Number(e.currentTarget.value) })} /><strong>{pad.octave > 0 ? "+" : ""}{pad.octave}</strong></label>
+          <label><span>Wideness</span><input type="range" min="0" max="100" value={pad.width} onChange={(e) => updatePad({ width: Number(e.currentTarget.value) })} /><strong>{pad.width}%</strong></label>
+          <label><span>Volume</span><input type="range" min="-60" max="6" step=".5" value={pad.gainDb} onChange={(e) => updatePad({ gainDb: Number(e.currentTarget.value) })} /><strong>{pad.gainDb.toFixed(1)} dB</strong></label>
+          <label><span>Release</span><input type="range" min="0" max="5000" step="50" value={pad.releaseMs} onChange={(e) => updatePad({ releaseMs: Number(e.currentTarget.value) })} /><strong>{(pad.releaseMs / 1000).toFixed(2)} s</strong></label>
+          <button className="primary" onClick={() => void replacePad()}>{pad.path ? "Replace Audio" : "Load WAV / MP3 / AIFF"}</button>
+          {pad.path && <code>{pad.path}</code>}
         </div>
       </div>
     </section>
