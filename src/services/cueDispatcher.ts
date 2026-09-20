@@ -6,6 +6,7 @@ export interface CueDispatchContext {
   video?: VideoProgram;
   sendLumaRig?: (command: { type: "scene.fire"; sceneId: string }) => Promise<LumaRigCommandResult>;
   sendMidiPatch?: (patch: string) => Promise<void>;
+  midiConnected?: boolean;
 }
 
 export interface CueDispatchResult { videoClipId?: string; lighting?: boolean; midi?: boolean; errors: string[]; }
@@ -19,7 +20,7 @@ export async function dispatchSectionCue(cue: SectionCueDispatch, context: CueDi
     try { const response = await context.sendLumaRig({ type: "scene.fire", sceneId: cue.lightingCue }); result.lighting = response.ok; if (!response.ok) result.errors.push(response.error ?? "LumaRig cue failed."); }
     catch (error) { result.errors.push(error instanceof Error ? error.message : String(error)); }
   }
-  if (cue.midiPatch && context.sendMidiPatch) {
+  if (cue.midiPatch && context.sendMidiPatch && context.midiConnected) {
     try { await context.sendMidiPatch(cue.midiPatch); result.midi = true; }
     catch (error) { result.errors.push(error instanceof Error ? error.message : String(error)); }
   }
