@@ -46,6 +46,8 @@ export interface NativeAudioStatus {
   countInActive?: boolean;
   countInBeat?: number;
   countInTotal?: number;
+  countInBar?: number;
+  countInBars?: number;
   voicePack?: NativeVoicePackInfo | null;
   musicBus?: NativeAudioBusStatus;
   clickBus?: NativeAudioBusStatus;
@@ -183,6 +185,7 @@ export async function audioScheduleTransition({
   firstCountDelaySeconds,
   beatSeconds,
   countBeats,
+  pulsesPerBar,
   clickEnabled,
   keepAudio,
   guideEvents = []
@@ -192,6 +195,7 @@ export async function audioScheduleTransition({
   firstCountDelaySeconds: number;
   beatSeconds: number;
   countBeats: number;
+  pulsesPerBar: number;
   clickEnabled: boolean;
   keepAudio: boolean;
   guideEvents?: NativeGuideTransitionEvent[];
@@ -202,6 +206,7 @@ export async function audioScheduleTransition({
     firstCountDelaySeconds,
     beatSeconds,
     countBeats,
+    pulsesPerBar,
     clickEnabled,
     keepAudio,
     guideEvents
