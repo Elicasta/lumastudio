@@ -1,4 +1,10 @@
-import type { Section, Song } from "./types";
+import { sectionStartSeconds, secondsPerBeat } from "./timing";
+import type {
+  CountFeel,
+  GuideVoiceSettings,
+  Section,
+  Song
+} from "./types";
 
 export const CORE_COUNT_TOKENS = Array.from(
   { length: 16 },
@@ -44,22 +50,6 @@ export type SectionToken = (typeof CORE_SECTION_TOKENS)[number];
 export type DirectionToken = (typeof CORE_DIRECTION_TOKENS)[number];
 export type GuideToken = CountToken | SectionToken | DirectionToken | string;
 
-export type GuideOutputMode =
-  | "off"
-  | "click-only"
-  | "voice-and-click"
-  | "voice-only";
-
-export type SectionCueMode = "off" | "automatic";
-
-export interface GuideVoiceSettings {
-  voicePackId: string;
-  outputMode: GuideOutputMode;
-  sectionCues: SectionCueMode;
-  announceFirstSection: boolean;
-  voiceFinalBarOnly: boolean;
-}
-
 export interface VoiceAsset {
   token: GuideToken;
   file: string;
@@ -98,7 +88,8 @@ export const DEFAULT_GUIDE_SETTINGS: GuideVoiceSettings = {
   outputMode: "voice-and-click",
   sectionCues: "automatic",
   announceFirstSection: true,
-  voiceFinalBarOnly: true
+  voiceFinalBarOnly: true,
+  countFeel: "notated"
 };
 
 /**
@@ -184,7 +175,7 @@ export function planGuideCount({
 export function planAutomaticSectionCue(
   song: Song,
   sectionIndex: number,
-  pulsesPerBar = song.sections[sectionIndex]?.meterOverride?.[0] ?? song.meter[0]
+  pulsesPerBar = countPulseForSection(song, song.sections[sectionIndex]).pulsesPerBar
 ): GuideCuePlan {
   const section = song.sections[sectionIndex];
   if (!section || sectionIndex === 0) {
@@ -208,7 +199,7 @@ export function planAutomaticSectionCue(
 export function planSongStartGuide(song: Song): GuideCuePlan {
   const firstSection = song.sections[0];
   const meter = firstSection?.meterOverride ?? song.meter;
-  const pulsesPerBar = meter[0];
+  const pulsesPerBar = countPulseForSection(song, firstSection).pulsesPerBar;
   const bars =
     song.countIn.mode === "bars"
       ? Math.max(0, Math.round(song.countIn.value ?? 1))
@@ -229,6 +220,84 @@ export function planSongStartGuide(song: Song): GuideCuePlan {
     announceSection: true,
     voiceFinalBarOnly: true
   });
+}
+
+export interface CountPulse {
+  pulsesPerBar: number;
+  pulseSeconds: number;
+}
+
+export function countPulseForSection(
+  song: Song,
+  section?: Section
+): CountPulse {
+  const meter = section?.meterOverride ?? song.meter;
+  const bpm = section?.tempoOverride ?? song.bpm;
+  return countPulseForMeter(bpm, meter, song.guideVoice.countFeel);
+}
+
+export function countPulseForMeter(
+  bpm: number,
+  meter: [number, number],
+  feel: CountFeel
+): CountPulse {
+  const notatedPulseSeconds = secondsPerBeat(bpm, meter);
+  const compound =
+    feel === "compound" &&
+    meter[1] === 8 &&
+    meter[0] >= 6 &&
+    meter[0] % 3 === 0;
+
+  if (compound) {
+    return {
+      pulsesPerBar: meter[0] / 3,
+      pulseSeconds: notatedPulseSeconds * 3
+    };
+  }
+
+  return {
+    pulsesPerBar: meter[0],
+    pulseSeconds: notatedPulseSeconds
+  };
+}
+
+export function buildAutomaticGuideTimeline(song: Song): Array<{
+  atSeconds: number;
+  token: string;
+  gainDb?: number;
+}> {
+  if (
+    song.guideVoice.sectionCues !== "automatic" ||
+    song.guideVoice.outputMode === "off" ||
+    song.guideVoice.outputMode === "click-only"
+  ) {
+    return [];
+  }
+
+  const events: Array<{
+    atSeconds: number;
+    token: string;
+    gainDb?: number;
+  }> = [];
+
+  for (let index = 1; index < song.sections.length; index += 1) {
+    const destination = song.sections[index];
+    const pulse = countPulseForSection(song, destination);
+    const plan = planAutomaticSectionCue(song, index, pulse.pulsesPerBar);
+    const destinationSeconds = sectionStartSeconds(song, index);
+
+    for (const event of plan.events) {
+      const atSeconds =
+        destinationSeconds + event.offsetPulses * pulse.pulseSeconds;
+      if (atSeconds < 0) continue;
+      events.push({
+        atSeconds,
+        token: event.token
+      });
+    }
+  }
+
+  return events.sort((a, b) => a.atSeconds - b.atSeconds);
 }
 
 export function sectionTokenForName(name: string): SectionToken | null {
