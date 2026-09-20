@@ -292,4 +292,3 @@ function uniqueTrackId(name: string, index: number): string {
   return (slug || "track") + "-" + (index + 1);
 }
 
-// Backward-compatible aliases while v0.3 migrates callers to format-neutral naming.\nexport const chooseWavTracks = chooseAudioTracks;\nexport const loadWavSong = loadAudioSong;\n
