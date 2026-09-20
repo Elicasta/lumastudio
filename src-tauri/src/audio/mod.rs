@@ -149,7 +149,6 @@ pub fn audio_schedule_transition(
     beat_seconds: f64,
     count_beats: u64,
     keep_audio: bool,
-    #[serde(default)]
     guide_events: Vec<GuideTransitionEventRequest>,
     service: State<'_, AudioService>,
 ) -> Result<Value, String> {
