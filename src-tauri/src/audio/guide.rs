@@ -290,6 +290,13 @@ impl GuideRenderer {
         }
     }
 
+    pub fn seek_timeline(&mut self, schedule: &GuideSchedule, frame: u64) {
+        self.timeline_revision = schedule.revision;
+        self.timeline_index = first_event_at_or_after(schedule, frame);
+        self.expected_timeline_frame = Some(frame);
+        self.active.clear();
+    }
+
     pub fn trigger_timeline(&mut self, frame: u64, schedule: &GuideSchedule) {
         while let Some(event) = schedule.events.get(self.timeline_index) {
             if event.start_frame > frame {
