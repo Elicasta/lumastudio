@@ -380,6 +380,7 @@ impl AudioEngine {
             "music" => Ok(&self.realtime.music_bus),
             "click" => Ok(&self.realtime.click_bus),
             "guide" => Ok(&self.realtime.guide_bus),
+            "pads" => Ok(&self.realtime.pad_bus),
             "master" => Ok(&self.realtime.master_bus),
             _ => Err(AudioError::BusNotFound(id.to_owned())),
         }
