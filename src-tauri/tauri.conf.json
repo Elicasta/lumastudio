@@ -41,7 +41,8 @@
     "shortDescription": "Music, MIDI, video and lighting performance control.",
     "longDescription": "LumaRig Studio combines setlists, multitrack playback, musical sections, MIDI, video, pads and lighting control in one performance-first desktop application.",
     "macOS": {
-      "minimumSystemVersion": "12.0"
+      "minimumSystemVersion": "12.0",
+      "signingIdentity": "-"
     }
   },
   "plugins": {
