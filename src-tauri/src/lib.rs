@@ -50,6 +50,7 @@ pub fn run() {
             midi::midi_send,
             midi::midi_program_change,
             midi::midi_control_change,
+            integrations::lumalink_discover,
             integrations::propresenter_snapshot,
             integrations::propresenter_next,
             integrations::propresenter_previous,
