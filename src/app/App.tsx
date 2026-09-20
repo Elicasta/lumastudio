@@ -797,6 +797,8 @@ export function App() {
               audio={audio}
               queuedManualSection={queuedManualSection}
               onLaunchSection={(index) => void launchSection(index)}
+              proPresenter={proPresenter}
+              onSongChange={setSelectedSong}
             />
           )}
         </div>
@@ -1971,7 +1973,9 @@ function Performance({
   remoteClients,
   audio,
   queuedManualSection,
-  onLaunchSection
+  onLaunchSection,
+  proPresenter,
+  onSongChange
 }: {
   song: Song;
   current: number;
@@ -1982,6 +1986,8 @@ function Performance({
   audio: AudioEngineController;
   queuedManualSection: number | null;
   onLaunchSection: (index: number) => void;
+  proPresenter: ReturnType<typeof useProPresenter>;
+  onSongChange: (song: Song) => void;
 }) {
   const active = song.sections[Math.min(current, song.sections.length - 1)];
   const automaticNextIndex = Math.min(current + 1, song.sections.length - 1);
@@ -1996,6 +2002,21 @@ function Performance({
   const queued = queuedManualSection !== null
     ? song.sections[queuedManualSection]
     : null;
+  const presentation = song.presentation ?? { mode: "manual" as const, cueLeadBeats: 0, cues: [] };
+  const presenterMatches = Boolean(
+    proPresenter.state.presentationName
+    && normalizeProPresenterName(proPresenter.state.presentationName) === normalizeProPresenterName(song.title)
+  );
+
+  function setPresentationMode(mode: "manual" | "section-follow" | "full-auto") {
+    onSongChange({
+      ...song,
+      presentation: {
+        ...presentation,
+        mode
+      }
+    });
+  }
 
   return (
     <section className="performance-page">
@@ -2114,6 +2135,41 @@ function Performance({
             }
             ok={remoteOnline}
           />
+        </div>
+      </div>
+
+      <div className="live-presentation-control panel">
+        <div>
+          <small>PRESENTATION</small>
+          <strong>
+            {proPresenter.state.connected
+              ? proPresenter.state.presentationName ?? "ProPresenter connected"
+              : "ProPresenter offline"}
+          </strong>
+          <span>
+            {proPresenter.state.connected
+              ? [
+                  proPresenter.state.currentGroup,
+                  proPresenter.state.slideIndex !== undefined ? "Slide " + (proPresenter.state.slideIndex + 1) : undefined,
+                  presenterMatches ? "Matched" : "Different presentation"
+                ].filter(Boolean).join(" · ")
+              : "Studio will not send presentation commands."}
+          </span>
+        </div>
+        <div className="live-presentation-modes">
+          <button className={presentation.mode === "manual" ? "active manual" : ""} onClick={() => setPresentationMode("manual")}>
+            TAKE MANUAL
+          </button>
+          <button className={presentation.mode === "section-follow" ? "active" : ""} onClick={() => setPresentationMode("section-follow")}>
+            SECTION FOLLOW
+          </button>
+          <button
+            className={presentation.mode === "full-auto" ? "active" : ""}
+            disabled={presentation.cues.length === 0}
+            onClick={() => setPresentationMode("full-auto")}
+          >
+            FULL AUTO
+          </button>
         </div>
       </div>
 
