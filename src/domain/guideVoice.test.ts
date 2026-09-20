@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { goodness } from "./demo";
+import { sectionStartSeconds } from "./timing";
 import {
   buildAutomaticGuideTimeline,
   countPulseForSection,
@@ -107,6 +108,47 @@ describe("guide voice planner", () => {
     };
     const pulse = countPulseForSection(sixEight, sixEight.sections[0]);
     expect(pulse.pulsesPerBar).toBe(2);
+  });
+
+  it("adds reusable direction markers to the automatic native Guide timeline", () => {
+    const song = {
+      ...goodness,
+      guideMarkers: [
+        {
+          id: "last-time-bridge",
+          bar: 73,
+          beat: 1,
+          token: "direction.last-time",
+          label: "Last Time"
+        }
+      ]
+    };
+
+    const events = buildAutomaticGuideTimeline(song);
+    const marker = events.find((event) => event.token === "direction.last-time");
+
+    expect(marker).toBeDefined();
+    expect(marker?.atSeconds).toBeCloseTo(sectionStartSeconds(song, 5), 5);
+  });
+
+  it("preserves a custom recorded Guide token", () => {
+    const song = {
+      ...goodness,
+      guideMarkers: [
+        {
+          id: "custom-cue",
+          bar: 9,
+          beat: 2,
+          token: "custom.everybody-in"
+        }
+      ]
+    };
+
+    expect(
+      buildAutomaticGuideTimeline(song).some(
+        (event) => event.token === "custom.everybody-in"
+      )
+    ).toBe(true);
   });
 
   it("uses the first Section label for Song start guide", () => {
