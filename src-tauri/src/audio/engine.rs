@@ -233,6 +233,7 @@ impl AudioEngine {
         first_count_delay_seconds: f64,
         beat_seconds: f64,
         count_beats: u64,
+        click_enabled: bool,
         keep_audio: bool,
         guide_events: &[GuideTransitionEventRequest],
     ) -> Result<(), AudioError> {
@@ -278,6 +279,7 @@ impl AudioEngine {
             first_count_delay_frames,
             beat_frames,
             count_beats,
+            click_enabled,
             keep_audio,
         );
 
@@ -611,7 +613,10 @@ fn count_click_sample(
     transition: super::transition::TransitionSnapshot,
     sample_rate: u32,
 ) -> f32 {
-    if transition.count_beats == 0 || transition.beat_frames == 0 {
+    if !transition.click_enabled
+        || transition.count_beats == 0
+        || transition.beat_frames == 0
+    {
         return 0.0;
     }
 
@@ -687,7 +692,7 @@ mod tests {
         ]);
         state.transport.pause();
         state.transport.seek_frame(0);
-        state.transition.schedule(2, 2, 0, 1, 2, false);
+        state.transition.schedule(2, 2, 0, 1, 2, true, false);
 
         let mut output = vec![0.0_f32; 6];
         render(&mut output, 2, 48_000, &state, &mut GuideRenderer::default());
