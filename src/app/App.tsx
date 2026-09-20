@@ -94,7 +94,7 @@ export function App() {
 
       if (countIn.countBeats > 0) {
         await audio.scheduleTransition({
-          targetSeconds: 0,
+          targetSeconds: countIn.targetSeconds,
           delaySeconds: countIn.launchAfterSeconds,
           firstCountDelaySeconds: 0,
           beatSeconds: countIn.beatSeconds,
@@ -103,6 +103,10 @@ export function App() {
         });
         return;
       }
+
+      if (countIn.targetSeconds > 0) {
+        await audio.seek(countIn.targetSeconds);
+      }
     }
 
     await audio.playPause();
@@ -110,6 +114,7 @@ export function App() {
     audio.hasLoadedAudio,
     audio.playPause,
     audio.scheduleTransition,
+    audio.seek,
     audio.status.countInActive,
     audio.status.playing,
     audio.status.positionSeconds,
