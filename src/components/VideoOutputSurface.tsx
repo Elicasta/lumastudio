@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { VideoProgram } from "./VideoProgram";
-import { listenVideoOutputState, type VideoOutputSnapshot } from "../services/videoOutputState";
+import { listenVideoOutputState, requestVideoOutputState, type VideoOutputSnapshot } from "../services/videoOutputState";
 
 export function VideoOutputSurface() {
   const [snapshot, setSnapshot] = useState<VideoOutputSnapshot>({ positionSeconds: 0, playing: false });
@@ -9,7 +9,7 @@ export function VideoOutputSurface() {
     let disposed = false;
     let unlisten: (() => void) | undefined;
     void listenVideoOutputState((next) => setSnapshot(next)).then((stop) => {
-      if (disposed) stop(); else unlisten = stop;
+      if (disposed) stop(); else { unlisten = stop; void requestVideoOutputState(); }
     });
     return () => { disposed = true; unlisten?.(); };
   }, []);
