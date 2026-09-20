@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { goodness } from "./demo";
 import {
+  buildAutomaticGuideTimeline,
+  countPulseForSection,
   planAutomaticSectionCue,
   planGuideCount,
   planSongStartGuide,
@@ -85,6 +87,26 @@ describe("guide voice planner", () => {
     const plan = planAutomaticSectionCue(goodness, 2);
     expect(plan.events[0].token).toBe("section.chorus");
     expect(plan.events.at(-1)?.token).toBe("count.4");
+  });
+
+  it("builds reusable absolute automatic Guide events", () => {
+    const events = buildAutomaticGuideTimeline(goodness);
+    expect(events.length).toBeGreaterThan(0);
+    expect(events.some((event) => event.token === "section.chorus")).toBe(true);
+    expect(events.every((event) => event.atSeconds >= 0)).toBe(true);
+  });
+
+  it("shares compound pulse feel with the count engine", () => {
+    const sixEight = {
+      ...goodness,
+      meter: [6, 8] as [number, number],
+      guideVoice: {
+        ...goodness.guideVoice,
+        countFeel: "compound" as const
+      }
+    };
+    const pulse = countPulseForSection(sixEight, sixEight.sections[0]);
+    expect(pulse.pulsesPerBar).toBe(2);
   });
 
   it("uses the first Section label for Song start guide", () => {
