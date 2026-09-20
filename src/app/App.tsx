@@ -406,6 +406,9 @@ export function App() {
               onSelect={(song) => void selectSetlistSong(song)}
               onOpenArrangement={() => setPage("arrangement")}
               onImport={() => setImportOpen(true)}
+              onSongChange={setSelectedSong}
+              onStart={startPlayback}
+              onPause={pausePlayback}
             />
           )}
           {page === "songs" && (
@@ -620,13 +623,19 @@ function SetlistPage({
   audio,
   onSelect,
   onOpenArrangement,
-  onImport
+  onImport,
+  onSongChange,
+  onStart,
+  onPause
 }: {
   selected: Song;
   audio: AudioEngineController;
   onSelect: (song: Song) => void;
   onOpenArrangement: () => void;
   onImport: () => void;
+  onSongChange: (song: Song) => void;
+  onStart: () => Promise<void>;
+  onPause: () => Promise<void>;
 }) {
   const displayedTracks = selected.tracks.filter((track) =>
     ["click", "guide", "drums", "bass", "keys", "guitar", "vocals", "other", "midi", "lighting", "video"].includes(track.kind)
@@ -639,6 +648,8 @@ function SetlistPage({
     : 29;
   const previousSong = adjacentSong(demoSetlist, selected.id, -1);
   const nextSong = adjacentSong(demoSetlist, selected.id, 1);
+  const transportBusy = Boolean(audio.status.countInActive);
+  const transportPlaying = Boolean(audio.status.playing);
 
   return (
     <section className="studio-dashboard">
@@ -713,7 +724,20 @@ function SetlistPage({
             >
               <ChevronLeft size={18} />
             </button>
-            <button className="play-square" onClick={() => void audio.playPause()} disabled={!audio.hasLoadedAudio}>
+            <button
+              className="play-square"
+              onClick={() =>
+                void (transportPlaying || transportBusy ? onPause() : onStart())
+              }
+              disabled={!audio.hasLoadedAudio}
+              aria-label={
+                transportBusy
+                  ? "Cancel count-in"
+                  : transportPlaying
+                    ? "Pause"
+                    : "Play"
+              }
+            >
               <Play size={19} fill="currentColor" />
             </button>
             <button
@@ -763,12 +787,70 @@ function SetlistPage({
             <div className="sync-signature"><strong>{selected.meter[0]}</strong><b>/</b><strong>{selected.meter[1]}</strong></div>
           </label>
           <label>
-            <span>Metronome</span>
+            <span>Song Start Count-In</span>
             <div className="segmented">
-              <button className="active">Off</button><button>1 Bar</button><button>2 Bars</button><button>4 Bars</button>
+              <button
+                className={selected.countIn.mode === "none" ? "active" : ""}
+                onClick={() =>
+                  onSongChange({ ...selected, countIn: { mode: "none" } })
+                }
+              >
+                Off
+              </button>
+              <button
+                className={
+                  selected.countIn.mode === "bars" &&
+                  selected.countIn.value === 1
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  onSongChange({
+                    ...selected,
+                    countIn: { mode: "bars", value: 1 }
+                  })
+                }
+              >
+                1 Bar
+              </button>
+              <button
+                className={
+                  selected.countIn.mode === "bars" &&
+                  selected.countIn.value === 2
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  onSongChange({
+                    ...selected,
+                    countIn: { mode: "bars", value: 2 }
+                  })
+                }
+              >
+                2 Bars
+              </button>
+              <button
+                className={
+                  selected.countIn.mode === "beats" &&
+                  selected.countIn.value === 4
+                    ? "active"
+                    : ""
+                }
+                onClick={() =>
+                  onSongChange({
+                    ...selected,
+                    countIn: { mode: "beats", value: 4 }
+                  })
+                }
+              >
+                4 Beats
+              </button>
             </div>
           </label>
-          <div className="sync-toggle"><span>Count-in</span><i /></div>
+          <div className="sync-toggle">
+            <span>Manual Jumps: {selected.manualJumpCountIn.mode === "adaptive" ? "Adaptive Count" : "No Count"}</span>
+            <i className={selected.manualJumpCountIn.mode === "adaptive" ? "on" : ""} />
+          </div>
           <div className="sync-toggle"><span>Follow Song Tempo</span><i className="on" /></div>
         </div>
       </div>
