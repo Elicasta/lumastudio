@@ -50,6 +50,15 @@ export interface Section {
   countInOverride?: CountInSettings;
 }
 
+export interface GuideMarker {
+  id: string;
+  bar: number;
+  beat: number;
+  token: string;
+  label?: string;
+  gainDb?: number;
+}
+
 export interface Track {
   id: string;
   name: string;
@@ -74,6 +83,7 @@ export interface Song {
   countIn: CountInSettings;
   manualJumpCountIn: CountInSettings;
   guideVoice: GuideVoiceSettings;
+  guideMarkers: GuideMarker[];
   tracks: Track[];
   sections: Section[];
 }
