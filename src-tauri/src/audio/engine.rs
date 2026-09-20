@@ -75,6 +75,8 @@ pub struct AudioEngine {
 pub struct AudioBusStatus {
     pub gain_db: f32,
     pub muted: bool,
+    pub output_left: u16,
+    pub output_right: u16,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -301,6 +303,34 @@ impl AudioEngine {
         Ok(())
     }
 
+    pub fn set_bus_route(
+        &self,
+        id: &str,
+        output_left: u16,
+        output_right: u16,
+    ) -> Result<(), AudioError> {
+        if id == "master" {
+            return Err(AudioError::Guide(
+                "Master is a global gain stage and does not own a hardware route".into(),
+            ));
+        }
+
+        if output_left == 0
+            || output_right == 0
+            || output_left > self.output_channels
+            || output_right > self.output_channels
+        {
+            return Err(AudioError::Guide(format!(
+                "output route {output_left}-{output_right} is outside the active {}-channel device",
+                self.output_channels
+            )));
+        }
+
+        self.bus(id)?
+            .set_output_pair(output_left - 1, output_right - 1);
+        Ok(())
+    }
+
     fn bus(&self, id: &str) -> Result<&BusControl, AudioError> {
         match id {
             "music" => Ok(&self.realtime.music_bus),
@@ -404,18 +434,26 @@ impl AudioEngine {
             music_bus: AudioBusStatus {
                 gain_db: self.realtime.music_bus.gain_db(),
                 muted: self.realtime.music_bus.muted(),
+                output_left: self.realtime.music_bus.output_pair().0 + 1,
+                output_right: self.realtime.music_bus.output_pair().1 + 1,
             },
             click_bus: AudioBusStatus {
                 gain_db: self.realtime.click_bus.gain_db(),
                 muted: self.realtime.click_bus.muted(),
+                output_left: self.realtime.click_bus.output_pair().0 + 1,
+                output_right: self.realtime.click_bus.output_pair().1 + 1,
             },
             guide_bus: AudioBusStatus {
                 gain_db: self.realtime.guide_bus.gain_db(),
                 muted: self.realtime.guide_bus.muted(),
+                output_left: self.realtime.guide_bus.output_pair().0 + 1,
+                output_right: self.realtime.guide_bus.output_pair().1 + 1,
             },
             master_bus: AudioBusStatus {
                 gain_db: self.realtime.master_bus.gain_db(),
                 muted: self.realtime.master_bus.muted(),
+                output_left: self.realtime.master_bus.output_pair().0 + 1,
+                output_right: self.realtime.master_bus.output_pair().1 + 1,
             },
         }
     }
@@ -584,33 +622,37 @@ where
         let guide_gain = realtime.guide_bus.gain_linear();
         let master_gain = realtime.master_bus.gain_linear();
 
-        let click_left = track_click_left + click;
-        let click_right = track_click_right + click;
-        let guide_left = track_guide_left + voice_guide_left;
-        let guide_right = track_guide_right + voice_guide_right;
+        let music = (music_left * music_gain, music_right * music_gain);
+        let click_bus = (
+            (track_click_left + click) * click_gain,
+            (track_click_right + click) * click_gain,
+        );
+        let guide = (
+            (track_guide_left + voice_guide_left) * guide_gain,
+            (track_guide_right + voice_guide_right) * guide_gain,
+        );
 
-        let left = (
-            music_left * music_gain
-                + click_left * click_gain
-                + guide_left * guide_gain
-        ) * master_gain;
-        let right = (
-            music_right * music_gain
-                + click_right * click_gain
-                + guide_right * guide_gain
-        ) * master_gain;
+        let music_route = realtime.music_bus.output_pair();
+        let click_route = realtime.click_bus.output_pair();
+        let guide_route = realtime.guide_bus.output_pair();
 
-        let left = left.clamp(-1.0, 1.0);
-        let right = right.clamp(-1.0, 1.0);
+        for (channel, sample_out) in frame_out.iter_mut().enumerate() {
+            let channel = channel as u16;
+            let sample = (
+                routed_bus_sample(channel, music_route, music)
+                    + routed_bus_sample(channel, click_route, click_bus)
+                    + routed_bus_sample(channel, guide_route, guide)
+            ) * master_gain;
+            let sample = sample.clamp(-1.0, 1.0);
 
-        peak_left = peak_left.max(left.abs());
-        peak_right = peak_right.max(right.abs());
+            if channel == 0 {
+                peak_left = peak_left.max(sample.abs());
+            }
+            if channel == 1 || (output_channels == 1 && channel == 0) {
+                peak_right = peak_right.max(sample.abs());
+            }
 
-        if output_channels == 1 {
-            frame_out[0] = T::from_sample_((left + right) * 0.5);
-        } else {
-            frame_out[0] = T::from_sample_(left);
-            frame_out[1] = T::from_sample_(right);
+            *sample_out = T::from_sample_(sample);
         }
 
         if transition_active {
@@ -627,6 +669,31 @@ where
     }
 
     realtime.meter.store_peaks(peak_left, peak_right);
+}
+
+fn routed_bus_sample(
+    channel: u16,
+    route: (u16, u16),
+    signal: (f32, f32),
+) -> f32 {
+    let (left_channel, right_channel) = route;
+    let (left, right) = signal;
+
+    if left_channel == right_channel {
+        if channel == left_channel {
+            return (left + right) * 0.5;
+        }
+        return 0.0;
+    }
+
+    let mut sample = 0.0;
+    if channel == left_channel {
+        sample += left;
+    }
+    if channel == right_channel {
+        sample += right;
+    }
+    sample
 }
 
 fn count_click_sample(
