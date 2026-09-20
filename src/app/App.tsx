@@ -350,9 +350,10 @@ export function App() {
         song: selectedSong,
         currentSectionIndex: currentSection,
         previewPlaying,
-        audioStatus: audio.status
+        audioStatus: audio.status,
+        queuedSectionIndex: queuedManualSection
       }),
-    [audio.status, currentSection, previewPlaying, selectedSong]
+    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong]
   );
 
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
