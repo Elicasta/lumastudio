@@ -21,6 +21,7 @@ export interface ManualJumpPlan {
   launchAfterSeconds: number;
   countBeats: number;
   beatSeconds: number;
+  pulsesPerBar: number;
   firstCountAfterSeconds: number;
   sourceBar: number;
   sourceBeat: number;
@@ -125,6 +126,7 @@ export function musicalPositionAtSeconds(
 export function planSongCountIn(song: Song): {
   countBeats: number;
   beatSeconds: number;
+  pulsesPerBar: number;
   launchAfterSeconds: number;
   targetSeconds: number;
 } {
@@ -140,6 +142,7 @@ export function planSongCountIn(song: Song): {
   return {
     countBeats,
     beatSeconds,
+    pulsesPerBar: pulse.pulsesPerBar,
     launchAfterSeconds: countBeats * beatSeconds,
     targetSeconds: Math.max(0, song.downbeatSeconds ?? 0)
   };
@@ -195,6 +198,7 @@ export function planManualSectionJump(
       launchAfterSeconds: untilNextBeat,
       countBeats: 0,
       beatSeconds: targetBeatSeconds,
+      pulsesPerBar: targetPulse.pulsesPerBar,
       firstCountAfterSeconds: 0,
       sourceBar: current.bar,
       sourceBeat: current.beat,
@@ -241,6 +245,7 @@ export function planManualSectionJump(
       launchAfterSeconds: 0,
       countBeats: 0,
       beatSeconds: current.beatSeconds,
+      pulsesPerBar: currentPulse.pulsesPerBar,
       firstCountAfterSeconds: 0,
       sourceBar: current.bar,
       sourceBeat: current.beat,
