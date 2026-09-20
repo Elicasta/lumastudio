@@ -28,6 +28,41 @@ export interface ManualJumpPlan {
   mode: CountInSettings["mode"];
 }
 
+export function barBeatToSeconds(
+  song: Song,
+  bar: number,
+  beat: number
+): number {
+  const safeBar = Math.max(1, Math.round(bar));
+  const requestedBeat = Math.max(1, beat);
+
+  let sectionIndex = 0;
+  for (let index = 0; index < song.sections.length; index += 1) {
+    const section = song.sections[index];
+    if (section.startBar <= safeBar) {
+      sectionIndex = index;
+    } else {
+      break;
+    }
+  }
+
+  const section = song.sections[sectionIndex];
+  if (!section) return Math.max(0, song.downbeatSeconds ?? 0);
+
+  const meter = section.meterOverride ?? song.meter;
+  const bpm = section.tempoOverride ?? song.bpm;
+  const beatSeconds = secondsPerBeat(bpm, meter);
+  const beatsPerBar = Math.max(1, meter[0]);
+  const clampedBeat = Math.min(requestedBeat, beatsPerBar + 0.999999);
+  const barsFromSection = Math.max(0, safeBar - section.startBar);
+
+  return (
+    sectionStartSeconds(song, sectionIndex) +
+    barsFromSection * secondsPerBar(bpm, meter) +
+    (clampedBeat - 1) * beatSeconds
+  );
+}
+
 export function sectionStartSeconds(song: Song, sectionIndex: number): number {
   const safeIndex = Math.max(0, Math.min(song.sections.length - 1, sectionIndex));
   let seconds = Math.max(0, song.downbeatSeconds ?? 0);
