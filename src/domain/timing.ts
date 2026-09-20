@@ -221,6 +221,7 @@ export function planManualSectionJump(
         firstCountAfterSeconds + countBeats * targetBeatSeconds,
       countBeats,
       beatSeconds: targetBeatSeconds,
+      pulsesPerBar: targetPulse.pulsesPerBar,
       firstCountAfterSeconds,
       sourceBar: current.bar,
       sourceBeat: current.beat,
@@ -244,8 +245,8 @@ export function planManualSectionJump(
       targetSeconds,
       launchAfterSeconds: 0,
       countBeats: 0,
-      beatSeconds: current.beatSeconds,
-      pulsesPerBar: currentPulse.pulsesPerBar,
+      beatSeconds: targetBeatSeconds,
+      pulsesPerBar: targetPulse.pulsesPerBar,
       firstCountAfterSeconds: 0,
       sourceBar: current.bar,
       sourceBeat: current.beat,
@@ -280,11 +281,11 @@ export function planManualSectionJump(
     };
   }
 
-  const currentMeterBeats = current.meter[0];
+  const currentMeterBeats = currentPulse.pulsesPerBar;
   const beatsRemainingInBar =
     currentPulseProgress < 0.02
-      ? currentMeterBeats - current.beat + 1
-      : currentMeterBeats - current.beat;
+      ? currentMeterBeats - currentPulseIndex + 1
+      : currentMeterBeats - currentPulseIndex;
 
   const minimum = Math.max(1, settings.minBeats ?? 2);
   const countBeats =
@@ -299,6 +300,7 @@ export function planManualSectionJump(
       firstCountAfterSeconds + countBeats * targetBeatSeconds,
     countBeats,
     beatSeconds: targetBeatSeconds,
+    pulsesPerBar: targetPulse.pulsesPerBar,
     firstCountAfterSeconds,
     sourceBar: current.bar,
     sourceBeat: current.beat,
