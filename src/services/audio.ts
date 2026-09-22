@@ -107,21 +107,7 @@ export async function chooseAudioTracks(): Promise<NativeAudioTrack[]> {
 
   const paths = Array.isArray(selected) ? selected : [selected];
 
-  return paths.map((path, index) => {
-    const filename = path.split(/[\\/]/).pop() ?? "Track " + (index + 1);
-    const name = filename.replace(/\.(wav|wave|mp3|aif|aiff)$/i, "");
-    const kind = inferTrackKind(name);
-
-    return {
-      id: uniqueTrackId(name, index),
-      name,
-      path,
-      gainDb: 0,
-      startSeconds: 0,
-      kind,
-      color: colors[kind]
-    };
-  });
+  return paths.map((path, index) => audioTrackFromPath(path, index));
 }
 
 export async function chooseVoicePackDirectory(): Promise<string | null> {
@@ -266,6 +252,21 @@ export async function setNativeLoop(
 
 export async function clearNativeLoop(): Promise<void> {
   await invoke("audio_clear_loop");
+}
+
+export function audioTrackFromPath(path: string, index = 0): NativeAudioTrack {
+  const filename = path.split(/[\\/]/).pop() ?? "Track " + (index + 1);
+  const name = filename.replace(/\.(wav|wave|mp3|aif|aiff)$/i, "");
+  const kind = inferTrackKind(name);
+  return {
+    id: uniqueTrackId(name, index),
+    name,
+    path,
+    gainDb: 0,
+    startSeconds: 0,
+    kind,
+    color: colors[kind]
+  };
 }
 
 export function inferTrackKind(name: string): TrackKind {
