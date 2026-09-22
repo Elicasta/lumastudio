@@ -6,6 +6,7 @@ mod integrations;
 mod media_bus;
 
 use audio::AudioService;
+use tauri::{webview::WebviewWindowBuilder, WebviewUrl};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -18,6 +19,21 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .plugin(tauri_plugin_localhost::Builder::new(1421).build())
+        .setup(|app| {
+            let url: url::Url = if cfg!(debug_assertions) {
+                "http://localhost:1420".parse().expect("valid Studio dev URL")
+            } else {
+                "http://127.0.0.1:1421".parse().expect("valid Studio localhost URL")
+            };
+            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+                .title("LumaRig Studio")
+                .inner_size(1540.0, 980.0)
+                .min_inner_size(1100.0, 720.0)
+                .resizable(true)
+                .build()?;
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             audio::audio_initialize,
             audio::audio_load_pad,
