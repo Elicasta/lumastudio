@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   Activity,
   AudioLines,
@@ -737,7 +738,7 @@ export function App() {
                 active={buildTool}
                 onSelect={setBuildTool}
               />
-              {buildTool === "arrangement" && <Arrangement song={selectedSong} onSongChange={setSelectedSong} />}
+              {buildTool === "arrangement" && <Arrangement song={selectedSong} audio={audio} onSongChange={setSelectedSong} />}
               {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
               {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
               {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
@@ -1526,19 +1527,53 @@ function SongsPage({
 
 function Arrangement({
   song,
+  audio,
   onSongChange
 }: {
   song: Song;
+  audio: AudioEngineController;
   onSongChange: (song: Song) => void;
 }) {
   const [selectedSectionIndex, setSelectedSectionIndex] = useState(
     Math.min(4, Math.max(0, song.sections.length - 1))
   );
+  const [nativeDropActive, setNativeDropActive] = useState(false);
   const selectedSection =
     song.sections[Math.min(selectedSectionIndex, song.sections.length - 1)];
   const totalBars = Math.max(
     ...song.sections.map((section) => section.startBar + section.lengthBars - 1)
   );
+
+  function assignMedia(trackId: string, mediaId: string) {
+    const media = audio.tracks.find((item) => item.id === mediaId);
+    if (!media) return;
+    onSongChange({
+      ...song,
+      tracks: song.tracks.map((track) =>
+        track.id === trackId
+          ? { ...track, media: { id: media.id, path: media.path, startSeconds: media.startSeconds } }
+          : track
+      )
+    });
+  }
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) return;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWebviewWindow().onDragDropEvent((event) => {
+      if (event.payload.type === "enter" || event.payload.type === "over") {
+        setNativeDropActive(true);
+        return;
+      }
+      if (event.payload.type === "drop") {
+        setNativeDropActive(false);
+        void audio.loadPaths(event.payload.paths);
+        return;
+      }
+      setNativeDropActive(false);
+    }).then((stop) => { unlisten = stop; });
+    return () => unlisten?.();
+  }, [audio.loadPaths]);
 
   function setSongCountIn(settings: CountInSettings) {
     onSongChange({ ...song, countIn: settings });
@@ -1614,8 +1649,43 @@ function Arrangement({
           </p>
         </div>
         <div className="head-actions">
+          <button onClick={() => void audio.chooseAndLoad()}>Import Audio</button>
           <button>Edit</button>
           <button className="primary">Save</button>
+        </div>
+      </div>
+
+      <div className={nativeDropActive ? "panel arrangement-media-bin drop-active" : "panel arrangement-media-bin"}>
+        <div>
+          <small>MEDIA BIN</small>
+          <strong>{audio.tracks.length ? audio.tracks.length + " imported audio files" : "Drop WAV / MP3 / AIFF here"}</strong>
+          <span>Import once, then drag a file onto the track lane that should play it.</span>
+        </div>
+        <div className="arrangement-media-items">
+          {audio.tracks.map((media) => (
+            <div
+              key={media.id}
+              className="arrangement-media-item"
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "copy";
+                event.dataTransfer.setData("application/x-lumastudio-audio", media.id);
+              }}
+            >
+              <i style={{ background: media.color }} />
+              <strong>{media.name}</strong>
+              <span>{media.kind}</span>
+              <select defaultValue="" onChange={(event) => {
+                if (event.currentTarget.value) assignMedia(event.currentTarget.value, media.id);
+                event.currentTarget.value = "";
+              }}>
+                <option value="">Assign to…</option>
+                {song.tracks.filter((track) => !["lighting","video","midi"].includes(track.kind)).map((track) => (
+                  <option key={track.id} value={track.id}>{track.name}</option>
+                ))}
+              </select>
+            </div>
+          ))}
         </div>
       </div>
 
@@ -1821,24 +1891,40 @@ function Arrangement({
           </div>
         </div>
 
-        {song.tracks.map((track, index) => (
-          <div className="track-lane" key={track.id}>
-            <div className="track-label">
-              <button>S</button>
-              <button>M</button>
-              <span style={{ color: track.color }}>{track.name}</span>
+        {song.tracks.map((track, index) => {
+          const acceptsAudio = !["lighting","video","midi"].includes(track.kind);
+          const assignedMedia = track.media ? audio.tracks.find((media) => media.id === track.media?.id) : undefined;
+          return (
+            <div className="track-lane" key={track.id}>
+              <div className="track-label">
+                <button>S</button>
+                <button>M</button>
+                <span style={{ color: track.color }}>{track.name}</span>
+                {track.media && <small title={track.media.path}>{assignedMedia?.name ?? track.media.path.split(/[\\/]/).pop()}</small>}
+              </div>
+              <div
+                className={"lane lane-" + track.kind + (acceptsAudio ? " audio-drop-lane" : "") + (track.media ? " assigned" : "")}
+                onDragOver={(event) => { if (acceptsAudio) { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; } }}
+                onDrop={(event) => {
+                  if (!acceptsAudio) return;
+                  event.preventDefault();
+                  const mediaId = event.dataTransfer.getData("application/x-lumastudio-audio");
+                  if (mediaId) assignMedia(track.id, mediaId);
+                }}
+              >
+                {track.kind === "lighting" ? (
+                  <LightingAutomation />
+                ) : track.kind === "video" ? (
+                  <VideoLane />
+                ) : track.media ? (
+                  <><Waveform seed={index} color={track.color} /><span className="audio-clip-label">{assignedMedia?.name ?? "Assigned Audio"}</span></>
+                ) : (
+                  <div className="audio-drop-placeholder">DROP AUDIO HERE</div>
+                )}
+              </div>
             </div>
-            <div className={"lane lane-" + track.kind}>
-              {track.kind === "lighting" ? (
-                <LightingAutomation />
-              ) : track.kind === "video" ? (
-                <VideoLane />
-              ) : (
-                <Waveform seed={index} color={track.color} />
-              )}
-            </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
 
       {selectedSection && (
