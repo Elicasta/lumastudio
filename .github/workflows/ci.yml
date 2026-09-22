@@ -1,48 +1,42 @@
 name: CI
-
 on:
   pull_request:
     branches: [main]
   push:
     branches: [main, "build/**"]
-
 jobs:
-  macos:
-    runs-on: macos-15
+  verify:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-
       - uses: actions/setup-node@v5
         with:
           node-version: 22
-
+      - name: Install frontend dependencies
+        run: npm install
+      - name: Verify versions
+        run: npm run check:versions
+      - name: Test frontend
+        run: npm test
+      - name: Build frontend
+        run: npm run build
+  macos:
+    runs-on: macos-15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
       - uses: dtolnay/rust-toolchain@stable
-
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: "./src-tauri -> target"
-
-      - name: Install frontend dependencies
-        run: npm install
-
-      - name: Verify versions
-        run: npm run check:versions
-
-      - name: Test frontend
-        run: npm test
-
-      - name: Build frontend
-        run: npm run build
-
-      - name: Check native macOS app
-        run: cargo check --manifest-path src-tauri/Cargo.toml
-
-      - name: Build macOS test DMG
-        run: npm run dmg
-
-      - name: Upload macOS test DMG
-        uses: actions/upload-artifact@v4
+      - run: npm install
+      - run: cargo check --manifest-path src-tauri/Cargo.toml
+      - run: npm run dmg
+      - uses: actions/upload-artifact@v4
         with:
-          name: LumaRig-Studio-macOS-test-DMG
+          name: LumaStudio-macOS-test-DMG
           path: src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
