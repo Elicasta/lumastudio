@@ -11,7 +11,7 @@ pub fn video_open_output(app: AppHandle) -> Result<(), String> {
         .title("LumaRig Studio Program")
         .inner_size(1280.0, 720.0)
         .resizable(true)
-        .decorations(false)
+        .decorations(true)
         .build()
         .map_err(|e| e.to_string())?;
     Ok(())
