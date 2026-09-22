@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { VideoProgram } from "./VideoProgram";
 import { listenVideoOutputState, requestVideoOutputState, type VideoOutputSnapshot } from "../services/videoOutputState";
 import { fullscreenVideoOutput } from "../services/videoOutput";
 
 export function VideoOutputSurface() {
   const [snapshot, setSnapshot] = useState<VideoOutputSnapshot>({ positionSeconds: 0, playing: false });
+  const surfaceRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -14,6 +15,7 @@ export function VideoOutputSurface() {
       }
     };
     window.addEventListener("keydown", onKeyDown);
+    window.setTimeout(() => surfaceRef.current?.focus(), 0);
 
     let disposed = false;
     let unlisten: (() => void) | undefined;
@@ -27,7 +29,7 @@ export function VideoOutputSurface() {
     };
   }, []);
 
-  return <main className="standalone-video-output">
+  return <main ref={surfaceRef} tabIndex={0} className="standalone-video-output">
     <VideoProgram program={snapshot.program} positionSeconds={snapshot.positionSeconds} playing={snapshot.playing} sectionId={snapshot.sectionId} />
   </main>;
 }
