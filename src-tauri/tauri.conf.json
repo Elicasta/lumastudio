@@ -20,7 +20,8 @@
         "minHeight": 720,
         "resizable": true,
         "fullscreen": false,
-        "backgroundColor": "#071019"
+        "backgroundColor": "#071019",
+        "create": false
       }
     ],
     "security": {
