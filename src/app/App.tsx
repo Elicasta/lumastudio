@@ -29,6 +29,7 @@ import type { VideoClip, VideoProgram, VideoProgramState } from "../domain/video
 import { VideoProgram as VideoProgramRenderer } from "../components/VideoProgram";
 import { fullscreenVideoOutput, openVideoOutput } from "../services/videoOutput";
 import { listenVideoOutputRequests, publishVideoOutputState } from "../services/videoOutputState";
+import { LumaVizMediaBus } from "../services/lumavizMedia";
 import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import { sectionCueDispatch } from "../domain/cues";
@@ -101,6 +102,7 @@ export function App() {
   const [projectPath, setProjectPath] = useState<string | undefined>();
   const [selectedSong, setSelectedSong] = useState<Song>(goodness);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const lumaVizMediaRef = useRef<LumaVizMediaBus>();
   const [importOpen, setImportOpen] = useState(false);
   const [currentSection, setCurrentSection] = useState(4);
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
@@ -201,6 +203,18 @@ export function App() {
     proPresenter.state.presentationName,
     selectedSong
   ]);
+
+  useEffect(() => {
+    const bus = lumaVizMediaRef.current ?? new LumaVizMediaBus();
+    lumaVizMediaRef.current = bus;
+    bus.publish({
+      outputId:"program-1",
+      program:project.video,
+      positionSeconds:audio.status.positionSeconds ?? 0,
+      playing:Boolean(audio.status.playing || previewPlaying),
+      sectionId:selectedSong.sections[currentSection]?.id
+    });
+  }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong.sections, currentSection]);
 
   useEffect(() => {
     void publishVideoOutputState({
