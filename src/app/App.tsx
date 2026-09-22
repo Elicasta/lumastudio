@@ -537,8 +537,9 @@ export function App() {
             )
           }));
 
-          if (audio.tracks.some((track) => track.id === id)) {
-            await audio.setTrackGain(id, gainDb);
+          const nativeId = selectedSong.tracks.find((track) => track.id === id)?.media?.id ?? id;
+          if (audio.tracks.some((track) => track.id === nativeId)) {
+            await audio.setTrackGain(nativeId, gainDb);
           }
           return ok();
         }
@@ -554,8 +555,9 @@ export function App() {
             )
           }));
 
-          if (audio.tracks.some((track) => track.id === id)) {
-            await audio.setTrackMuted(id, muted);
+          const nativeId = selectedSong.tracks.find((track) => track.id === id)?.media?.id ?? id;
+          if (audio.tracks.some((track) => track.id === nativeId)) {
+            await audio.setTrackMuted(nativeId, muted);
           }
           return ok();
         }
@@ -571,8 +573,9 @@ export function App() {
             )
           }));
 
-          if (audio.tracks.some((track) => track.id === id)) {
-            await audio.setTrackSolo(id, solo);
+          const nativeId = selectedSong.tracks.find((track) => track.id === id)?.media?.id ?? id;
+          if (audio.tracks.some((track) => track.id === nativeId)) {
+            await audio.setTrackSolo(nativeId, solo);
           }
           return ok();
         }
