@@ -3,12 +3,19 @@
   "identifier": "default",
   "description": "Desktop capabilities for LumaRig Studio",
   "windows": [
-    "main"
+    "main",
+    "video-output"
   ],
   "permissions": [
     "core:default",
     "updater:default",
     "process:default",
     "dialog:default"
-  ]
+  ],
+  "remote": {
+    "urls": [
+      "http://127.0.0.1:1421/*",
+      "http://localhost:1421/*"
+    ]
+  }
 }
