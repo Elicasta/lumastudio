@@ -52,7 +52,7 @@ export function useAudioEngine() {
     } catch (cause) {
       setError(messageOf(cause));
     }
-  }, [loadTracks]);
+  }, []);
 
   useEffect(() => {
     const savedVoicePack = localStorage.getItem(VOICE_PACK_PATH_KEY);
