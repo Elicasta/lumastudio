@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "LumaRig Studio",
+  "productName": "LumaStudio",
   "version": "0.4.0",
-  "identifier": "studio.lumarig.app",
+  "identifier": "studio.luma.app",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "LumaRig Studio",
+        "title": "LumaStudio",
         "label": "main",
         "width": 1540,
         "height": 980,
@@ -39,8 +39,8 @@
       "icons/icon.png"
     ],
     "category": "Music",
-    "shortDescription": "Music, MIDI, video and lighting performance control.",
-    "longDescription": "LumaRig Studio combines setlists, multitrack playback, musical sections, MIDI, video, pads and lighting control in one performance-first desktop application.",
+    "shortDescription": "Multitrack, presentation, video and show-control workspace for the Luma ecosystem.",
+    "longDescription": "LumaStudio combines setlists, multitrack playback, musical sections, presentation control, MIDI, video, pads and LumaRig lighting integration in one performance-first desktop application.",
     "macOS": {
       "minimumSystemVersion": "12.0",
       "signingIdentity": "-"
