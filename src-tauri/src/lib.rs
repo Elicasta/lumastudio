@@ -6,7 +6,7 @@ mod integrations;
 mod media_bus;
 
 use audio::AudioService;
-use tauri::{webview::WebviewWindowBuilder, Manager, WebviewUrl};
+use tauri::{webview::WebviewWindowBuilder, WebviewUrl};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,19 +21,13 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_localhost::Builder::new(1421).build())
         .setup(|app| {
-            if !cfg!(debug_assertions) {
-                app.ipc_scope().configure_remote_access(
-                    tauri::ipc::RemoteDomainAccessScope::new("127.0.0.1:1421".to_string())
-                        .add_window("main")
-                );
-            }
             let url = if cfg!(debug_assertions) {
-                "http://localhost:1420".parse().expect("valid Studio dev URL")
+                WebviewUrl::External("http://localhost:1420".parse().expect("valid Studio dev URL"))
             } else {
-                "http://127.0.0.1:1421".parse().expect("valid Studio localhost URL")
+                WebviewUrl::App("index.html".into())
             };
-            WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
-                .title("LumaRig Studio")
+            WebviewWindowBuilder::new(app, "main", url)
+                .title("LumaStudio")
                 .inner_size(1540.0, 980.0)
                 .min_inner_size(1100.0, 720.0)
                 .resizable(true)
