@@ -699,7 +699,8 @@ export function App() {
           enabled: true,
           muted: false,
           solo: false,
-          gainDb: track.gainDb
+          gainDb: track.gainDb,
+          media: { id: track.id, path: track.path, startSeconds: track.startSeconds }
         })),
         ...song.tracks.filter((track) =>
           ["midi", "lighting", "video"].includes(track.kind)
@@ -2657,7 +2658,8 @@ function Mixer({
 
       <div className="mixer panel">
         {audioTracks.map((track, index) => {
-          const live = audio.tracks.some((nativeTrack) => nativeTrack.id === track.id);
+          const nativeId = track.media?.id ?? track.id;
+          const live = audio.tracks.some((nativeTrack) => nativeTrack.id === nativeId);
           const muted = mutedTracks.has(track.id);
           const solo = soloTracks.has(track.id);
 
@@ -2690,7 +2692,7 @@ function Mixer({
                 disabled={!live}
                 onChange={(event) => {
                   if (live) {
-                    void audio.setTrackGain(track.id, Number(event.currentTarget.value));
+                    void audio.setTrackGain(nativeId, Number(event.currentTarget.value));
                   }
                 }}
               />
@@ -2703,7 +2705,7 @@ function Mixer({
                   disabled={!live}
                   onClick={() => {
                     const next = toggleSet(soloTracks, track.id, setSoloTracks);
-                    void audio.setTrackSolo(track.id, next);
+                    void audio.setTrackSolo(nativeId, next);
                   }}
                 >
                   S
@@ -2713,7 +2715,7 @@ function Mixer({
                   disabled={!live}
                   onClick={() => {
                     const next = toggleSet(mutedTracks, track.id, setMutedTracks);
-                    void audio.setTrackMuted(track.id, next);
+                    void audio.setTrackMuted(nativeId, next);
                   }}
                 >
                   M
