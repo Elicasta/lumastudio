@@ -239,18 +239,32 @@ export function App() {
     return () => stop?.();
   }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong.sections, currentSection]);
 
+  function nativeTracksForSong(song: Song): NativeAudioTrack[] {
+    return song.tracks.flatMap((track) => track.media ? [{
+      id: track.media.id,
+      name: track.name,
+      path: track.media.path,
+      gainDb: track.gainDb,
+      startSeconds: track.media.startSeconds,
+      kind: track.kind,
+      color: track.color
+    }] : []);
+  }
+
   const selectSetlistSong = useCallback(
     async (song: Song) => {
       if (audio.hasLoadedAudio) {
         await audio.stop();
       }
+      const songMedia = nativeTracksForSong(song);
+      await audio.loadTracks(songMedia);
       setPreviewPlaying(false);
       setQueuedManualSection(null);
       setSelectedSong(song);
       setProject((current) => ({ ...current, selectedSongId: song.id, updatedAt: new Date().toISOString() }));
       setCurrentSection(0);
     },
-    [audio.hasLoadedAudio, audio.stop]
+    [audio.hasLoadedAudio, audio.stop, audio.loadTracks]
   );
 
   const startPlayback = useCallback(async () => {
@@ -651,6 +665,7 @@ export function App() {
     const song = opened.project.setlist.songs.find((item) => item.id === opened.project.selectedSongId)
       ?? opened.project.setlist.songs[0];
     if (song) {
+      await audio.loadTracks(nativeTracksForSong(song));
       setSelectedSong(song);
       setCurrentSection(0);
       setQueuedManualSection(null);
