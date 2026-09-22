@@ -21,7 +21,7 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_localhost::Builder::new(1421).build())
         .setup(|app| {
-            let url: url::Url = if cfg!(debug_assertions) {
+            let url = if cfg!(debug_assertions) {
                 "http://localhost:1420".parse().expect("valid Studio dev URL")
             } else {
                 "http://127.0.0.1:1421".parse().expect("valid Studio localhost URL")
