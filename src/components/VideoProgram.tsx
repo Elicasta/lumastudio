@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { VideoProgram as VideoProgramModel } from "../domain/video";
 import { activeVideoClip } from "../domain/videoRuntime";
-import { localVideoUrl, youtubeEmbedUrl } from "../services/video";
+import { localVideoUrl } from "../services/video";
+import { YouTubeProgram } from "./YouTubeProgram";
 
 export function VideoProgram({ program, positionSeconds, playing, sectionId, preview = false }: {
   program?: VideoProgramModel;
@@ -29,7 +30,7 @@ export function VideoProgram({ program, positionSeconds, playing, sectionId, pre
   if (!resolved) return <div className="video-program-clear">{preview ? "No active clip at playhead" : null}</div>;
   const { clip, sourceSeconds } = resolved;
   if (clip.source.kind === "youtube") {
-    return <iframe className="video-program-frame" src={youtubeEmbedUrl(clip.source.videoId, sourceSeconds, clip.sourceOutSeconds)} allow="autoplay; encrypted-media; picture-in-picture" title={clip.name} />;
+    return <YouTubeProgram videoId={clip.source.videoId} sourceSeconds={sourceSeconds} playing={playing && state !== "freeze"} title={clip.name} />;
   }
   return <video ref={videoRef} className="video-program-frame" src={localVideoUrl(clip.source.path)} loop={clip.loop} playsInline />;
 }
