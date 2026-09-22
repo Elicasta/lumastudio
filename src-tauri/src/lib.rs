@@ -3,14 +3,18 @@ mod project;
 mod video;
 mod midi;
 mod integrations;
+mod media_bus;
 
 use audio::AudioService;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let media_bus=media_bus::MediaBus::default();
+    media_bus.start();
     tauri::Builder::default()
         .manage(AudioService::default())
         .manage(midi::MidiService::default())
+        .manage(media_bus)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
@@ -50,6 +54,7 @@ pub fn run() {
             midi::midi_send,
             midi::midi_program_change,
             midi::midi_control_change,
+            media_bus::lumaviz_media_publish,
             integrations::lumalink_discover,
             integrations::propresenter_snapshot,
             integrations::propresenter_next,
