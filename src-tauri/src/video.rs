@@ -7,7 +7,12 @@ pub fn video_open_output(app: AppHandle) -> Result<(), String> {
         window.set_focus().map_err(|e| e.to_string())?;
         return Ok(());
     }
-    WebviewWindowBuilder::new(&app, "video-output", WebviewUrl::App("index.html?surface=video-output".into()))
+    let url = if cfg!(debug_assertions) {
+        "http://localhost:1420/?surface=video-output".parse().map_err(|e| format!("Invalid video output URL: {e}"))?
+    } else {
+        "http://127.0.0.1:1421/?surface=video-output".parse().map_err(|e| format!("Invalid video output URL: {e}"))?
+    };
+    WebviewWindowBuilder::new(&app, "video-output", WebviewUrl::External(url))
         .title("LumaRig Studio Program")
         .inner_size(1280.0, 720.0)
         .resizable(true)
