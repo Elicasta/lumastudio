@@ -83,6 +83,11 @@ export interface Track {
   muted: boolean;
   solo: boolean;
   gainDb: number;
+  media?: {
+    id: string;
+    path: string;
+    startSeconds: number;
+  };
 }
 
 export interface SongExternalLinks {
