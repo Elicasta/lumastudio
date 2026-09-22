@@ -31,15 +31,26 @@ export interface VideoProgram {
 }
 
 export function youtubeVideoId(value: string): string | null {
+  const trimmed = value.trim();
+  if (/^[A-Za-z0-9_-]{11}$/.test(trimmed)) return trimmed;
+
   try {
-    const url = new URL(value);
-    if (url.hostname === "youtu.be") return url.pathname.slice(1).split("/")[0] || null;
-    if (url.hostname.endsWith("youtube.com")) {
+    const url = new URL(trimmed);
+    const host = url.hostname.toLowerCase().replace(/^www\./, "");
+    if (host === "youtu.be") return url.pathname.slice(1).split("/")[0] || null;
+    if (
+      host === "youtube.com" ||
+      host === "m.youtube.com" ||
+      host === "music.youtube.com" ||
+      host === "youtube-nocookie.com"
+    ) {
       if (url.pathname === "/watch") return url.searchParams.get("v");
-      const match = url.pathname.match(/^\/(?:shorts|embed)\/([^/?]+)/);
+      const match = url.pathname.match(/^\/(?:shorts|embed|live)\/([^/?]+)/);
       return match?.[1] ?? null;
     }
-  } catch { return null; }
+  } catch {
+    return null;
+  }
   return null;
 }
 
