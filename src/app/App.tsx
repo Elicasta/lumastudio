@@ -869,7 +869,7 @@ function Sidebar({
     <aside className="sidebar">
       <div className="brand">
         <div className="brand-mark">L</div>
-        <div><strong>LUMARIG</strong><span>STUDIO · BETA 0.4</span></div>
+        <div><strong>LUMA<span>STUDIO</span></strong><small>SHOW CONTROL · 0.4</small></div>
       </div>
       <nav className="workspace-nav">
         {workspaceNav.map(({ page: target, label, icon: Icon }) => (
@@ -878,7 +878,7 @@ function Sidebar({
           </button>
         ))}
       </nav>
-      <div className="sidebar-bottom"><span>WORKFLOW</span><strong>IMPORT → BUILD → SHOW → LIVE</strong></div>
+      <div className="sidebar-bottom"><span>LUMA ECOSYSTEM</span><strong>STUDIO</strong><small>IMPORT → BUILD → SHOW → LIVE</small></div>
     </aside>
   );
 }
