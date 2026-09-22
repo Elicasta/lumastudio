@@ -124,7 +124,6 @@ export function useAudioEngine() {
   }, [refresh, status.initialized, status.playing, status.transitionActive]);
 
   const loadTracks = useCallback(async (selected: NativeAudioTrack[]) => {
-    if (selected.length === 0) return null;
     setBusy(true);
     setError(null);
     try {
