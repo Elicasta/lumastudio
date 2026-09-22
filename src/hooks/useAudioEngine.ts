@@ -6,6 +6,7 @@ import {
   audioStop,
   audioScheduleTransition,
   audioCancelTransition,
+  audioTrackFromPath,
   chooseVoicePackDirectory,
   chooseAudioTracks,
   getAudioStatus,
@@ -51,7 +52,7 @@ export function useAudioEngine() {
     } catch (cause) {
       setError(messageOf(cause));
     }
-  }, []);
+  }, [loadTracks]);
 
   useEffect(() => {
     const savedVoicePack = localStorage.getItem(VOICE_PACK_PATH_KEY);
@@ -121,6 +122,27 @@ export function useAudioEngine() {
 
     return () => window.clearInterval(timer);
   }, [refresh, status.initialized, status.playing, status.transitionActive]);
+
+  const loadTracks = useCallback(async (selected: NativeAudioTrack[]) => {
+    if (selected.length === 0) return null;
+    setBusy(true);
+    setError(null);
+    try {
+      return await loadTracks(selected);
+    } catch (cause) {
+      setError(messageOf(cause));
+      return null;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const loadPaths = useCallback(async (paths: string[]) => {
+    const selected = paths
+      .filter((path) => /\.(wav|wave|mp3|aif|aiff)$/i.test(path))
+      .map((path, index) => audioTrackFromPath(path, index));
+    return loadTracks(selected);
+  }, [loadTracks]);
 
   const chooseAndLoad = useCallback(async () => {
     setBusy(true);
@@ -242,6 +264,8 @@ export function useAudioEngine() {
     hasLoadedAudio: (status.loadedTracks ?? 0) > 0,
     refresh,
     chooseAndLoad,
+    loadTracks,
+    loadPaths,
     chooseAndLoadVoicePack,
     updateGuideTimeline,
     playPause,
