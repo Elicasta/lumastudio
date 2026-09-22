@@ -15,7 +15,8 @@
   "remote": {
     "urls": [
       "http://127.0.0.1:1421/*",
-      "http://localhost:1421/*"
+      "http://localhost:1421/*",
+      "http://localhost:1420/*"
     ]
   }
 }
