@@ -6,7 +6,7 @@ mod integrations;
 mod media_bus;
 
 use audio::AudioService;
-use tauri::{webview::WebviewWindowBuilder, WebviewUrl};
+use tauri::{webview::WebviewWindowBuilder, Manager, WebviewUrl};
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -21,6 +21,12 @@ pub fn run() {
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_localhost::Builder::new(1421).build())
         .setup(|app| {
+            if !cfg!(debug_assertions) {
+                app.ipc_scope().configure_remote_access(
+                    tauri::ipc::RemoteDomainAccessScope::new("127.0.0.1:1421".to_string())
+                        .add_window("main")
+                );
+            }
             let url = if cfg!(debug_assertions) {
                 "http://localhost:1420".parse().expect("valid Studio dev URL")
             } else {
