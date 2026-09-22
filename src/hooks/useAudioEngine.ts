@@ -128,7 +128,10 @@ export function useAudioEngine() {
     setBusy(true);
     setError(null);
     try {
-      return await loadTracks(selected);
+      const nextStatus = await loadAudioSong(selected);
+      setTracks(selected);
+      setStatus(nextStatus);
+      return { tracks: selected, status: nextStatus };
     } catch (cause) {
       setError(messageOf(cause));
       return null;
@@ -145,24 +148,15 @@ export function useAudioEngine() {
   }, [loadTracks]);
 
   const chooseAndLoad = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-
     try {
       const selected = await chooseAudioTracks();
       if (selected.length === 0) return null;
-
-      const nextStatus = await loadAudioSong(selected);
-      setTracks(selected);
-      setStatus(nextStatus);
-      return { tracks: selected, status: nextStatus };
+      return await loadTracks(selected);
     } catch (cause) {
       setError(messageOf(cause));
       return null;
-    } finally {
-      setBusy(false);
     }
-  }, []);
+  }, [loadTracks]);
 
   const chooseAndLoadVoicePack = useCallback(async () => {
     setBusy(true);
