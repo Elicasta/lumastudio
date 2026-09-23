@@ -127,6 +127,8 @@ export function buildRemoteStudioState({
       id: slot.id,
       name: slot.name,
       active: activePadIds.has(slot.id),
+      ready: Boolean(slot.path),
+      mode: slot.mode,
       color: padColors[index % padColors.length]
     })),
     mixer: audioTracks.map((track, index) => ({
