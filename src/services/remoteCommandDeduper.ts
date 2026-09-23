@@ -22,6 +22,8 @@ function errorMessage(cause: unknown) {
 
 export class RemoteCommandDeduper {
   private readonly entries = new Map<string, { fingerprint: string; result: Promise<RemoteCommandAck> }>();
+  private tail: Promise<void> = Promise.resolve();
+  private generation = 0;
 
   execute(
     command: RemoteCommandEnvelope,
@@ -41,13 +43,24 @@ export class RemoteCommandDeduper {
       return existing.result;
     }
 
-    const result = Promise.resolve()
-      .then(() => handler(command))
+    const generation = this.generation;
+    const result = this.tail
+      .then(() => {
+        if (generation !== this.generation) {
+          return {
+            id: key,
+            ok: false,
+            error: "Remote session changed before the command could execute."
+          } satisfies RemoteCommandAck;
+        }
+        return handler(command);
+      })
       .catch((cause): RemoteCommandAck => ({
         id: key,
         ok: false,
         error: errorMessage(cause)
       }));
+    this.tail = result.then(() => undefined, () => undefined);
 
     this.entries.set(key, { fingerprint: nextFingerprint, result });
     while (this.entries.size > MAX_CACHED_COMMANDS) {
@@ -59,6 +72,8 @@ export class RemoteCommandDeduper {
   }
 
   clear() {
+    this.generation += 1;
     this.entries.clear();
+    this.tail = Promise.resolve();
   }
 }
