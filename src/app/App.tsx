@@ -799,7 +799,7 @@ export function App() {
                   onPause={pausePlayback}
                 />
               )}
-              {showTool === "connections" && <Connections audio={audio} remote={remote} lumarig={lumarig} song={selectedSong} onSongChange={setSelectedSong} />}
+              {showTool === "connections" && <Connections audio={audio} remote={remote} lumarig={lumarig} song={selectedSong} onSongChange={setSelectedSong} onOpenAudio={()=>{setPage("build");setBuildTool("mixer")}} onOpenMidi={()=>{setPage("build");setBuildTool("midi")}} onOpenLighting={()=>{setPage("build");setBuildTool("lighting")}} onOpenIntegrations={()=>setShowTool("integrations")}/>}
               {showTool === "integrations" && (
                 <IntegrationsPage
                   settings={integrationSettings}
@@ -2604,18 +2604,16 @@ function Lighting({
   );
 }
 
-function Connections({
-  audio,
-  remote,
-  lumarig,
-  song,
-  onSongChange
-}: {
+function Connections({ audio, remote, lumarig, song, onSongChange, onOpenAudio, onOpenMidi, onOpenLighting, onOpenIntegrations }: {
   audio: AudioEngineController;
   remote: ReturnType<typeof useRemoteRelay>;
   lumarig: ReturnType<typeof useLumaRig>;
   song: Song;
   onSongChange: (song: Song) => void;
+  onOpenAudio: () => void;
+  onOpenMidi: () => void;
+  onOpenLighting: () => void;
+  onOpenIntegrations: () => void;
 }) {
   const cards = [
     [
@@ -2627,7 +2625,7 @@ function Connections({
     ],
     ["MIDI", "Check MIDI settings", "Device availability is not monitored here"],
     ["Clock Sync", "Studio song tempo", "External clock lock is not monitored"],
-    ["Lighting", lumarig.peer?.name ?? "LumaRig", lumarig.state === "connected" ? "Direct bridge connected" : "Not connected"],
+    ["Lighting", lumarig.peer?.name ?? "LumaRig", lumarig.state === "connected" ? `Loopback · protocol 1 · ${lumarig.latencyMs ?? "?"} ms handshake` : lumarig.error || "No Rig session connected"],
     ["Network", "Supabase Realtime", "Studio owns the remote relay session"]
   ];
 
@@ -2743,7 +2741,7 @@ function Connections({
                     ? "muted"
                     : title === "Network" && remote.status !== "online"
                       ? "muted"
-                      : title === "MIDI"
+                      : title === "MIDI" || title === "Clock Sync"
                         ? "muted"
                         : title === "Lighting" && lumarig.state !== "connected"
                           ? "muted"
@@ -2754,14 +2752,14 @@ function Connections({
                   ? audio.status.initialized ? "Connected" : "Idle"
                   : title === "Network"
                     ? remote.status === "online" ? "Online" : "Offline"
-                    : title === "MIDI" || title === "Lighting"
-                      ? "Planned"
-                      : "Configured"}
+                    : title === "Lighting"
+                      ? lumarig.state === "connected" ? "Connected" : lumarig.state === "connecting" ? "Connecting" : "Offline"
+                      : title === "MIDI" ? "Not verified" : "Internal"}
               </span>
             </div>
             <strong>{value}</strong>
             <p>{detail}</p>
-            <button>Configure</button>
+            <button onClick={[onOpenAudio,onOpenMidi,onOpenMidi,onOpenLighting,onOpenIntegrations][index]}>Open settings</button>
           </div>
         ))}
       </div>
