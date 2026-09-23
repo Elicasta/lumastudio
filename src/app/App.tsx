@@ -124,7 +124,7 @@ export function App() {
   const [remoteLightingBlackout, setRemoteLightingBlackout] = useState(false);
   const [playingPadIds, setPlayingPadIds] = useState<Set<string>>(() => new Set());
   const padSlots = useMemo(() => makePadSlots(project.pads), [project.pads]);
-  const visiblePadSlots = padSlots.slice(0, project.padCount ?? 12);
+  const visiblePadSlots = useMemo(() => padSlots.slice(0, project.padCount ?? 12), [padSlots, project.padCount]);
   const stopAllPadVoices = useCallback(async () => {
     await Promise.allSettled(Array.from({ length: 16 }, (_, index) => stopNativePad(index)));
     setPlayingPadIds(new Set());
