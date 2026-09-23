@@ -553,11 +553,11 @@ export function App() {
 
         case "transport.go":
         case "transport.next": {
+          const nextIndex = currentSectionRef.current + 1;
+          if (nextIndex >= selectedSong.sections.length) return reject("End of arrangement.");
           if (!remoteSectionTransitionRef.current.tryBegin()) return reject("A section transition is already in progress.");
           try {
-            const pending = await launchSection(
-              Math.min(selectedSong.sections.length - 1, currentSectionRef.current + 1)
-            );
+            const pending = await launchSection(nextIndex);
             if (!pending) remoteSectionTransitionRef.current.release();
             return ok();
           } catch (error) {
@@ -567,9 +567,11 @@ export function App() {
         }
 
         case "transport.previous": {
+          const previousIndex = currentSectionRef.current - 1;
+          if (previousIndex < 0) return reject("Start of arrangement.");
           if (!remoteSectionTransitionRef.current.tryBegin()) return reject("A section transition is already in progress.");
           try {
-            const pending = await launchSection(Math.max(0, currentSectionRef.current - 1));
+            const pending = await launchSection(previousIndex);
             if (!pending) remoteSectionTransitionRef.current.release();
             return ok();
           } catch (error) {
