@@ -29,6 +29,30 @@ describe("buildRemoteStudioState", () => {
     expect(state.transport.playing).toBe(true);
   });
 
+  it("publishes real section lighting cues when LumaRig is connected", () => {
+    const sections = goodness.sections.map((section, index) => ({
+      ...section,
+      lightingCue: index === 0 ? "rig-scene-intro" : index === 1 ? "rig-scene-verse" : undefined
+    }));
+    const song = { ...goodness, sections };
+    const state = buildRemoteStudioState({
+      setlist: demoSetlist,
+      song,
+      currentSectionIndex: 0,
+      previewPlaying: false,
+      audioStatus: { initialized: true },
+      lightingConnected: true,
+      lightingBlackout: true
+    });
+
+    expect(state.health.lighting).toBe(true);
+    expect(state.lighting.blackout).toBe(true);
+    expect(state.lighting.scenes).toEqual([
+      { id: "rig-scene-intro", name: sections[0].name, color: sections[0].color, active: false },
+      { id: "rig-scene-verse", name: sections[1].name, color: sections[1].color, active: false }
+    ]);
+  });
+
   it("does not claim MIDI or lighting are live before those runtimes exist", () => {
     const state = buildRemoteStudioState({
       setlist: demoSetlist,
