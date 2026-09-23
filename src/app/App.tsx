@@ -264,28 +264,33 @@ export function App() {
   useEffect(() => {
     const bus = lumaVizMediaRef.current ?? new LumaVizMediaBus();
     lumaVizMediaRef.current = bus;
-    const section = selectedSong.sections[currentSection];
-    bus.publish({
-      outputId:"program-1",
-      program:project.video,
-      positionSeconds:audio.status.positionSeconds ?? 0,
-      playing:Boolean(audio.status.playing || previewPlaying),
-      playback:audio.status.playing || previewPlaying
-        ?"playing"
-        :(audio.status.positionSeconds ?? 0) > .05
-          ?"paused"
-          :"stopped",
-      sectionId:section?.id,
-      sectionName:section?.name,
-      sectionIndex:section ? currentSection : undefined,
-      song:{
-        id:selectedSong.id,
-        name:selectedSong.title,
-        artist:selectedSong.artist,
-        durationSeconds:selectedSong.durationSeconds,
-        bpm:selectedSong.bpm
-      }
-    });
+    const publish = () => {
+      const section = selectedSong.sections[currentSection];
+      bus.publish({
+        outputId:"program-1",
+        program:project.video,
+        positionSeconds:audio.status.positionSeconds ?? 0,
+        playing:Boolean(audio.status.playing || previewPlaying),
+        playback:audio.status.playing || previewPlaying
+          ?"playing"
+          :(audio.status.positionSeconds ?? 0) > .05
+            ?"paused"
+            :"stopped",
+        sectionId:section?.id,
+        sectionName:section?.name,
+        sectionIndex:section ? currentSection : undefined,
+        song:{
+          id:selectedSong.id,
+          name:selectedSong.title,
+          artist:selectedSong.artist,
+          durationSeconds:selectedSong.durationSeconds,
+          bpm:selectedSong.bpm
+        }
+      });
+    };
+    publish();
+    const heartbeat = window.setInterval(publish, 1000);
+    return () => window.clearInterval(heartbeat);
   }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong, currentSection]);
 
   useEffect(() => {
