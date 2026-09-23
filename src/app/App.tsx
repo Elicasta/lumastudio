@@ -114,6 +114,7 @@ export function App() {
   const [currentSection, setCurrentSection] = useState(0);
   const [liveLayout, setLiveLayout] = useState<"session"|"performance">("session");
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
+  const selectingSongRef = useRef(false);
   const audio = useAudioEngine();
   const mediaPaths = useMemo(() => projectMediaPaths(project), [project]);
   const checkMedia = useCallback(async () => {
@@ -244,6 +245,7 @@ export function App() {
 
   useEffect(() => {
     let stop: (() => void) | undefined;
+    let disposed = false;
     void listenVideoOutputRequests(() => {
       void publishVideoOutputState({
         program: project.video,
@@ -251,8 +253,8 @@ export function App() {
         playing: Boolean(audio.status.playing || previewPlaying),
         sectionId: selectedSong.sections[currentSection]?.id
       });
-    }).then((unlisten) => { stop = unlisten; });
-    return () => stop?.();
+    }).then((unlisten) => { if (disposed) unlisten(); else stop = unlisten; });
+    return () => { disposed = true; stop?.(); };
   }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong.sections, currentSection]);
 
   function nativeTracksForSong(song: Song): NativeAudioTrack[] {
@@ -269,6 +271,9 @@ export function App() {
 
   const selectSetlistSong = useCallback(
     async (song: Song) => {
+      if (selectingSongRef.current || audio.status.playing || audio.status.transitionActive || audio.status.countInActive) return false;
+      selectingSongRef.current = true;
+      try {
       if (audio.hasLoadedAudio) {
         await audio.stop();
       }
@@ -280,8 +285,9 @@ export function App() {
       setProject((current) => ({ ...current, selectedSongId: song.id, updatedAt: new Date().toISOString() }));
       setCurrentSection(0);
       return true;
+      } finally { selectingSongRef.current = false; }
     },
-    [audio.hasLoadedAudio, audio.stop, audio.loadTracks]
+    [audio.hasLoadedAudio, audio.stop, audio.loadTracks, audio.status.playing, audio.status.transitionActive, audio.status.countInActive]
   );
 
   const startPlayback = useCallback(async () => {
@@ -677,6 +683,7 @@ export function App() {
   }
 
   async function openStudioProject() {
+    if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) { setProjectError("Stop playback before opening a different service."); return; }
     try {
       const opened = await openProject();
       if (!opened) return;
@@ -696,6 +703,7 @@ export function App() {
   }
 
   async function newService() {
+    if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) { setProjectError("Stop playback before starting a new service."); return; }
     if ((project.setlist.songs.length || projectPath) && !window.confirm("Create a new service? Save your current service first if you need to keep recent changes.")) return;
     if (audio.hasLoadedAudio && !await audio.loadTracks([])) { setProjectError("Cannot clear the current audio. The service was not changed."); return; }
     const blank = createProject("New Service");
@@ -710,6 +718,7 @@ export function App() {
   }
 
   async function addServiceSong(title: string) {
+    if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) { setProjectError("Stop playback before changing the running order."); return false; }
     if (audio.hasLoadedAudio && !await audio.loadTracks([])) { setProjectError("Cannot clear the previous item's audio. Item was not added."); return false; }
     const song = createServiceSong(title);
     setProject(current => ({ ...current, selectedSongId: song.id, setlist: { ...current.setlist, songs: [...current.setlist.songs, song] }, updatedAt: new Date().toISOString() }));
@@ -719,6 +728,7 @@ export function App() {
   }
 
   function applyPlanningCenterImport(value: PlanningCenterPlanImport) {
+    if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) { setProjectError("Stop playback before importing a new running order."); return; }
     const firstSong = value.songs[0];
     setProject((current) => ({
       ...current,
@@ -742,10 +752,10 @@ export function App() {
     }
   }
 
-  function applyNativeTracks(
+  const applyNativeTracks = useCallback((
     tracks: NativeAudioTrack[],
     status: NativeAudioStatus
-  ) {
+  ) => {
     setSelectedSong((song) => ({
       ...song,
       title: song.title === "Goodness of God" ? "Imported Multitrack" : song.title,
@@ -768,7 +778,7 @@ export function App() {
         )
       ]
     }));
-  }
+  }, []);
 
   return (
     <div className="app-shell">
@@ -1204,7 +1214,7 @@ function SetlistPage({
         <div className="service-next"><small>NEXT IN RUNNING ORDER</small><strong>{nextSong?.title??"End of service"}</strong><span>{nextSong?"Not loaded. Select it when ready.":"No next item."}</span></div>
       </aside>
       <section className="panel service-preparation"><header><h2>Prepare selected item</h2><button onClick={onOpenArrangement}>Open arrangement →</button></header><div className="preparation-grid"><div><small>STRUCTURE</small><strong>{selected.sections.length} sections</strong><p>{selected.sections.map(section=>section.name).join(" → ") || "No sections defined"}</p></div><div><small>START COUNT-IN</small><div className="count-options">{([0,1,2] as const).map(bars=><button key={bars} disabled={playing||busy} className={(bars===0?selected.countIn.mode==="none":selected.countIn.mode==="bars"&&selected.countIn.value===bars)?"active":""} onClick={()=>onSongChange({...selected,countIn:bars===0?{mode:"none"}:{mode:"bars",value:bars}})}>{bars===0?"Off":bars+ (bars===1?" bar":" bars")}</button>)}</div><p>Applies to this item. Configure guide routing in Connections.</p></div></div></section>
-      <aside className="panel service-health"><header><h2>Show readiness</h2><button onClick={onCheckMedia}>Check files</button></header><strong>{audio.status.deviceName??"No audio device initialized"}</strong><p>{audio.status.deviceError||(!audio.status.initialized?"Load audio to initialize the native engine.":"Engine initialized. Validate the physical output before the show.")}</p><div className="actual-meters">{([audio.status.peakLeft??0,audio.status.peakRight??0]).map((level,index)=><div key={index}><span>{index===0?"L":"R"}</span><meter min={0} max={1} value={level} aria-label={index===0?"Left audio peak":"Right audio peak"}/></div>)}</div><div className="service-file-check" aria-live="polite">{!mediaCheck ? "Media files have not been checked." : mediaCheck.error ? mediaCheck.error : mediaCheck.missing.length ? <><strong>{mediaCheck.missing.length} missing or empty media file{mediaCheck.missing.length===1?"":"s"}</strong><ul>{mediaCheck.missing.map(path=><li key={path} title={path}>{path.split(/[\\/]/).pop() || path}</li>)}</ul></> : mediaCheck.checked ? `${mediaCheck.checked} assigned media files found. Check audio routing and receivers separately.` : "No media files assigned yet."}</div></aside>
+      <aside className="panel service-health"><header><h2>Show readiness</h2><button onClick={onCheckMedia}>Check files</button></header><strong>{audio.status.deviceName??"No audio device initialized"}</strong><p>{audio.status.deviceError ? (audio.status.lastError || "Audio device is unavailable. Check the output device in Mixer.") : !audio.status.initialized ? "Load audio to initialize the native engine." : "Engine initialized. Validate the physical output before the show."}</p><div className="actual-meters">{([audio.status.peakLeft??0,audio.status.peakRight??0]).map((level,index)=><div key={index}><span>{index===0?"L":"R"}</span><meter min={0} max={1} value={level} aria-label={index===0?"Left audio peak":"Right audio peak"}/></div>)}</div><div className="service-file-check" aria-live="polite">{!mediaCheck ? "Media files have not been checked." : mediaCheck.error ? mediaCheck.error : mediaCheck.missing.length ? <><strong>{mediaCheck.missing.length} missing or empty media file{mediaCheck.missing.length===1?"":"s"}</strong><ul>{mediaCheck.missing.map(path=><li key={path} title={path}>{path.split(/[\\/]/).pop() || path}</li>)}</ul></> : mediaCheck.checked ? `${mediaCheck.checked} assigned media files found. Check audio routing and receivers separately.` : "No media files assigned yet."}</div></aside>
     </div>
   </section>;
 }
@@ -1371,6 +1381,7 @@ function Arrangement({
   useEffect(() => {
     if (!("__TAURI_INTERNALS__" in window)) return;
     let unlisten: (() => void) | undefined;
+    let disposed = false;
     void getCurrentWebviewWindow().onDragDropEvent((event) => {
       if (event.payload.type === "enter" || event.payload.type === "over") {
         setNativeDropActive(true);
@@ -1382,8 +1393,8 @@ function Arrangement({
         return;
       }
       setNativeDropActive(false);
-    }).then((stop) => { unlisten = stop; });
-    return () => unlisten?.();
+    }).then((stop) => { if (disposed) stop(); else unlisten = stop; });
+    return () => { disposed = true; unlisten?.(); };
   }, [audio.loadPaths, onNativeLoaded]);
 
   function setSongCountIn(settings: CountInSettings) {
