@@ -110,6 +110,7 @@ export interface RemoteStudioState {
   }>;
   lighting: {
     blackout: boolean;
+    xySupported: boolean;
     scenes: Array<{
       id: string;
       name: string;
