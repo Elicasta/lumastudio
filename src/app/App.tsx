@@ -751,6 +751,23 @@ export function App() {
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
 
   useEffect(() => {
+    if (lumarig.state !== "connected" || lumarig.connectionEpoch <= 0) return;
+    const section = selectedSong.sections[currentSection];
+    if (!section) return;
+    const cue = sectionCueDispatch(selectedSong, section);
+    void (async () => {
+      if (remoteLightingBlackout) {
+        const blackout = await lumarig.send({ type: "blackout", enabled: true });
+        if (!blackout.ok) return;
+      }
+      if (cue.lightingCue) {
+        const result = await lumarig.send({ type: "scene.fire", sceneId: cue.lightingCue });
+        if (result.ok) setRemoteLightingSceneId(cue.lightingCue);
+      }
+    })();
+  }, [lumarig.connectionEpoch]);
+
+  useEffect(() => {
     const section = selectedSong.sections[currentSection];
     if (!section) return;
     const key = selectedSong.id + ":" + section.id;
