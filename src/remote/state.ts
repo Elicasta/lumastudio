@@ -28,6 +28,8 @@ export function buildRemoteStudioState({
   queuedSectionIndex = null,
   lightingConnected = false,
   lightingBlackout = false,
+  lightingSceneId = null,
+  lightingXySupported = false,
   pads = [],
   activePadIds = new Set<string>()
 }: {
@@ -39,6 +41,8 @@ export function buildRemoteStudioState({
   queuedSectionIndex?: number | null;
   lightingConnected?: boolean;
   lightingBlackout?: boolean;
+  lightingSceneId?: string | null;
+  lightingXySupported?: boolean;
   pads?: PadSlot[];
   activePadIds?: ReadonlySet<string>;
 }): RemoteStudioState {
@@ -61,7 +65,7 @@ export function buildRemoteStudioState({
   );
   const lightingScenes = [...new Map(song.sections.flatMap((section) =>
     section.lightingCue
-      ? [[section.lightingCue, { id: section.lightingCue, name: section.name, color: section.color, active: false }] as const]
+      ? [[section.lightingCue, { id: section.lightingCue, name: section.name, color: section.color, active: section.lightingCue === lightingSceneId }] as const]
       : []
   )).values()];
 
@@ -136,6 +140,7 @@ export function buildRemoteStudioState({
     })),
     lighting: {
       blackout: lightingBlackout,
+      xySupported: lightingXySupported,
       x: 0.5,
       y: 0.5,
       scenes: lightingScenes
