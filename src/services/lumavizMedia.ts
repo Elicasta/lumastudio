@@ -8,6 +8,7 @@ export interface LumaVizMediaFrame {
   timestamp:number;
   positionSeconds:number;
   playing:boolean;
+  playback?:"playing"|"paused"|"stopped";
   sectionId?:string;
   sectionName?:string;
   sectionIndex?:number;
