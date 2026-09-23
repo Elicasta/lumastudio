@@ -145,7 +145,7 @@ export function App() {
       setMediaCheck({ missing: missingMedia(mediaPaths, files), checked: mediaPaths.length });
     } catch (error) { setMediaCheck({missing: [], checked: 0, error: `File preflight failed: ${String(error)}`}); }
   }, [mediaPaths]);
-  useEffect(() => { if (page === "show") void checkMedia(); }, [page, checkMedia]);
+  useEffect(() => { if (page === "show" || page === "live") void checkMedia(); }, [page, checkMedia]);
   const integrationSettings = project.integrations ?? defaultIntegrationSettings();
   const proPresenter = useProPresenter(integrationSettings.propresenter, selectedSong, currentSection);
   const lastDispatchedSectionRef = useRef<string | null>(null);
@@ -879,6 +879,8 @@ export function App() {
           {pendingRecovery && <aside className="service-recovery panel" role="status"><div><strong>Previous Studio service found</strong><p>{pendingRecovery.project.name} · {pendingRecovery.project.setlist.songs.length} items · last saved locally {new Date(pendingRecovery.savedAt).toLocaleString()}</p><small>Restore the show layout and file assignments. Audio output must be checked again.</small></div><div><button className="primary" onClick={() => void restoreService()}>Restore service</button><button onClick={discardRecovery}>Start fresh</button></div></aside>}
           {!pendingRecovery && <>
           {recoveryError && <p role="alert" className="service-error">{recoveryError}</p>}
+          {page === "live" && mediaCheck?.error && <aside className="live-preflight-warning panel" role="alert"><strong>LIVE FILE CHECK UNAVAILABLE</strong><span>{mediaCheck.error}</span><button onClick={() => void checkMedia()}>Run file check</button></aside>}
+          {page === "live" && !mediaCheck?.error && mediaCheck && mediaCheck.missing.length > 0 && <aside className="live-preflight-warning panel" role="alert"><strong>{mediaCheck.missing.length} MEDIA FILE{mediaCheck.missing.length === 1 ? "" : "S"} NEED ATTENTION</strong><span>{mediaCheck.missing.slice(0, 3).map(path => path.split(/[\\/]/).pop() || path).join(" · ")}{mediaCheck.missing.length > 3 ? ` · +${mediaCheck.missing.length - 3} more` : ""}</span><button onClick={() => { setShowTool("setlist"); setPage("show"); }}>Review readiness</button></aside>}
           {project.setlist.songs.length === 0 && page !== "show" && <section className="service-empty-workspace panel"><small>NEW SERVICE</small><h1>Build the running order first</h1><p>Add a song or service item in Show. Then import its audio and prepare the arrangement.</p><button className="primary" onClick={() => { setShowTool("setlist"); setPage("show"); }}>Open running order</button></section>}
           {project.setlist.songs.length > 0 && page === "import" && (
             <Sources audio={audio} onLoaded={(tracks, status) => {
