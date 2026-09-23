@@ -126,6 +126,7 @@ export function App() {
   const lumarig = useLumaRig();
   const [remoteLightingBlackout, setRemoteLightingBlackout] = useState(false);
   const [remoteLightingSceneId, setRemoteLightingSceneId] = useState<string | null>(null);
+  const restoredRigConnectionRef = useRef(0);
   const [playingPadIds, setPlayingPadIds] = useState<Set<string>>(() => new Set());
   const padSlots = useMemo(() => makePadSlots(project.pads), [project.pads]);
   const visiblePadSlots = useMemo(() => padSlots.slice(0, project.padCount ?? 12), [padSlots, project.padCount]);
@@ -789,21 +790,41 @@ export function App() {
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
 
   useEffect(() => {
-    if (lumarig.state !== "connected" || lumarig.connectionEpoch <= 0) return;
+    if (!lumarig.runtimeStatus) return;
+    setRemoteLightingBlackout(lumarig.runtimeStatus.blackout);
+    setRemoteLightingSceneId(lumarig.runtimeStatus.currentCueId);
+  }, [lumarig.runtimeStatus]);
+
+  useEffect(() => {
+    if (
+      lumarig.state !== "connected" ||
+      lumarig.connectionEpoch <= 0 ||
+      !lumarig.runtimeStatus ||
+      restoredRigConnectionRef.current === lumarig.connectionEpoch
+    ) return;
+
+    restoredRigConnectionRef.current = lumarig.connectionEpoch;
+
+    // Rig local operator state is authoritative after reconnect. Seed the
+    // current Studio section only when Rig has no active cue of its own.
+    if (lumarig.runtimeStatus.currentCueId) return;
+
     const section = selectedSong.sections[currentSection];
     if (!section) return;
     const cue = sectionCueDispatch(selectedSong, section);
-    void (async () => {
-      if (remoteLightingBlackout) {
-        const blackout = await lumarig.send({ type: "blackout", enabled: true });
-        if (!blackout.ok) return;
-      }
-      if (cue.lightingCue) {
-        const result = await lumarig.send({ type: "scene.fire", sceneId: cue.lightingCue });
-        if (result.ok) setRemoteLightingSceneId(cue.lightingCue);
-      }
-    })();
-  }, [lumarig.connectionEpoch]);
+    if (!cue.lightingCue) return;
+
+    void lumarig.send({ type: "scene.fire", sceneId: cue.lightingCue }).then((result) => {
+      if (result.ok) setRemoteLightingSceneId(cue.lightingCue!);
+    });
+  }, [
+    lumarig.state,
+    lumarig.connectionEpoch,
+    lumarig.runtimeStatus,
+    lumarig.send,
+    selectedSong,
+    currentSection
+  ]);
 
   useEffect(() => {
     const section = selectedSong.sections[currentSection];
