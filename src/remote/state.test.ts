@@ -42,14 +42,16 @@ describe("buildRemoteStudioState", () => {
       previewPlaying: false,
       audioStatus: { initialized: true },
       lightingConnected: true,
-      lightingBlackout: true
+      lightingBlackout: true,
+      lightingSceneId: "rig-scene-verse"
     });
 
     expect(state.health.lighting).toBe(true);
     expect(state.lighting.blackout).toBe(true);
+    expect(state.lighting.xySupported).toBe(false);
     expect(state.lighting.scenes).toEqual([
       { id: "rig-scene-intro", name: sections[0].name, color: sections[0].color, active: false },
-      { id: "rig-scene-verse", name: sections[1].name, color: sections[1].color, active: false }
+      { id: "rig-scene-verse", name: sections[1].name, color: sections[1].color, active: true }
     ]);
   });
 
