@@ -142,6 +142,13 @@ export function isRemoteCommandEnvelope(value: unknown): value is RemoteCommandE
   return (
     candidate.type === "command" &&
     typeof candidate.id === "string" &&
-    isRemoteCommand(candidate.command)
+    candidate.id.length > 0 &&
+    candidate.id.length <= 128 &&
+    isRemoteCommand(candidate.command) &&
+    (candidate.payload === undefined || (
+      candidate.payload !== null &&
+      typeof candidate.payload === "object" &&
+      !Array.isArray(candidate.payload)
+    ))
   );
 }
