@@ -6,6 +6,7 @@ import type {
 } from "../remote/protocol";
 import { isRemoteCommandEnvelope } from "../remote/protocol";
 import { supabase } from "./supabase";
+import { RemoteCommandDeduper } from "./remoteCommandDeduper";
 
 export type RemoteRelayStatus =
   | "idle"
@@ -42,6 +43,7 @@ export class RemoteRelay {
   private revision = 0;
   private closed = false;
   private online = false;
+  private commandDeduper = new RemoteCommandDeduper();
 
   constructor(
     private readonly studioId: string,
@@ -123,6 +125,7 @@ export class RemoteRelay {
     }
 
     this.online = false;
+    this.commandDeduper.clear();
 
     const channel = this.channel;
     this.channel = null;
@@ -171,25 +174,12 @@ export class RemoteRelay {
       .on("broadcast", { event: "remote_command" }, async ({ payload }) => {
         if (!isRemoteCommandEnvelope(payload)) return;
 
-        try {
-          const ack = await this.events.onCommand(payload);
-          await channel.send({
-            type: "broadcast",
-            event: "command_ack",
-            payload: ack
-          });
-        } catch (cause) {
-          const ack: RemoteCommandAck = {
-            id: payload.id,
-            ok: false,
-            error: messageOf(cause)
-          };
-          await channel.send({
-            type: "broadcast",
-            event: "command_ack",
-            payload: ack
-          });
-        }
+        const ack = await this.commandDeduper.execute(payload, (command) => this.events.onCommand(command));
+        await channel.send({
+          type: "broadcast",
+          event: "command_ack",
+          payload: ack
+        });
       })
       .on("broadcast", { event: "remote_hello" }, () => {
         void this.flushState(true);
