@@ -22,6 +22,7 @@ import {
   Upload,
   WandSparkles
 } from "lucide-react";
+import { SessionView } from "../components/SessionView";
 import { demoSetlist, goodness } from "../domain/demo";
 import { createProject } from "../domain/project";
 import { openProject, saveProject } from "../services/projectStore";
@@ -31,7 +32,7 @@ import { VideoProgram as VideoProgramRenderer } from "../components/VideoProgram
 import { fullscreenVideoOutput, openVideoOutput } from "../services/videoOutput";
 import { listenVideoOutputRequests, publishVideoOutputState } from "../services/videoOutputState";
 import { LumaVizMediaBus } from "../services/lumavizMedia";
-import type { BuildTool, CountInSettings, ImportStep, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
+import type { BuildTool, CountInSettings, Page, Setlist, ShowTool, Song, Workspace } from "../domain/types";
 import { adjacentSong } from "../domain/setlist";
 import { sectionCueDispatch } from "../domain/cues";
 import { dispatchSectionCue } from "../services/cueDispatcher";
@@ -105,7 +106,8 @@ export function App() {
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const lumaVizMediaRef = useRef<LumaVizMediaBus>();
   const [importOpen, setImportOpen] = useState(false);
-  const [currentSection, setCurrentSection] = useState(4);
+  const [currentSection, setCurrentSection] = useState(0);
+  const [liveLayout, setLiveLayout] = useState<"session"|"performance">("session");
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const audio = useAudioEngine();
   const integrationSettings = project.integrations ?? defaultIntegrationSettings();
@@ -733,6 +735,8 @@ export function App() {
       <main className="main">
         <Transport
           song={selectedSong}
+          projectName={project.name}
+          rigConnected={lumarig.state === "connected"}
           previewPlaying={previewPlaying}
           onPreviewPlaying={setPreviewPlaying}
           audio={audio}
@@ -787,7 +791,7 @@ export function App() {
                   selected={selectedSong}
                   setlist={project.setlist}
                   audio={audio}
-                  onSelect={(song) => void selectSetlistSong(song)}
+                  onSelect={selectSetlistSong}
                   onOpenArrangement={() => { setBuildTool("arrangement"); setPage("build"); }}
                   onImport={() => setPage("import")}
                   onSongChange={setSelectedSong}
@@ -825,8 +829,9 @@ export function App() {
             </>
           )}
 
-          {page === "live" && (
-            <Performance
+          {page === "live" && (<>
+            <div className="live-layout-switch" role="group" aria-label="Live workspace"><button className={liveLayout==="session"?"active":""} onClick={()=>setLiveLayout("session")}>SESSION</button><button className={liveLayout==="performance"?"active":""} onClick={()=>setLiveLayout("performance")}>PERFORMANCE</button></div>
+            {liveLayout === "session" ? <SessionView song={selectedSong} current={currentSection} queued={queuedManualSection} audio={audio} onLaunch={launchSection} onSongChange={setSelectedSong} onStop={stopPlayback}/> : <Performance
               song={selectedSong}
               current={currentSection}
               nextSong={adjacentSong(project.setlist, selectedSong.id, 1)}
@@ -838,8 +843,8 @@ export function App() {
               onLaunchSection={(index) => void launchSection(index)}
               proPresenter={proPresenter}
               onSongChange={setSelectedSong}
-            />
-          )}
+            />}
+          </>)}
         </div>
       </main>
       {importOpen && (
@@ -991,7 +996,7 @@ function UnavailableFeature({ title, text }: { title: string; text: string }) {
 }
 
 function Transport({
-  song,
+  song, projectName, rigConnected,
   previewPlaying,
   onPreviewPlaying,
   audio,
@@ -1001,6 +1006,8 @@ function Transport({
   onStop
 }: {
   song: Song;
+  projectName: string;
+  rigConnected: boolean;
   previewPlaying: boolean;
   onPreviewPlaying: (value: boolean) => void;
   audio: AudioEngineController;
@@ -1033,15 +1040,15 @@ function Transport({
       : "COUNT READY"
     : transitionBusy
       ? "JUMP QUEUED"
-      : "1 Bar ⌄";
+      : song.countIn.mode === "none" ? "COUNT OFF" : `${song.countIn.value} ${song.countIn.mode.toUpperCase()} COUNT`;
 
   return (
     <header className="transport">
-      <div className="set-name">SUNDAY SET <span>⌄</span></div>
+      <div className="set-name" title={projectName}>{projectName}</div>
       <div className="tempo">
         <strong>{song.bpm.toFixed(1)}</strong>
         <span>BPM</span>
-        <button>TAP</button>
+        <button disabled title="Tap tempo is not implemented. Edit song tempo in Arrangement.">TAP</button>
       </div>
       <div className="meter">{song.meter[0]} / {song.meter[1]}</div>
       <button
@@ -1057,17 +1064,17 @@ function Transport({
       <div className={transitionBusy ? "quantize counting" : "quantize"}>{countLabel}</div>
       <div className="transport-spacer" />
       <Status
-        label={audio.hasLoadedAudio ? "Audio Live" : "Audio"}
-        ok={!audio.status.deviceError}
+        label={audio.status.playing ? "Audio playing" : audio.hasLoadedAudio ? "Audio loaded" : "No audio loaded"}
+        ok={Boolean(audio.status.initialized) && !audio.status.deviceError}
       />
-      <Status label="LumaRig" />
+      <Status label="LumaRig" ok={rigConnected} />
       <Status label="Remote" ok={remoteOnline} />
       <Gauge size={17} className="muted" />
       <span className="cpu">
         {audio.hasLoadedAudio
           ? fmtClock(audio.status.positionSeconds ?? 0) + " / " +
             fmtClock(audio.status.durationSeconds ?? 0)
-          : "CPU 12%"}
+          : "No audio position"}
       </span>
     </header>
   );
@@ -1101,366 +1108,39 @@ function SetlistPage({
   selected: Song;
   setlist: Setlist;
   audio: AudioEngineController;
-  onSelect: (song: Song) => void;
+  onSelect: (song: Song) => void | Promise<void>;
   onOpenArrangement: () => void;
   onImport: () => void;
   onSongChange: (song: Song) => void;
   onStart: () => Promise<void>;
   onPause: () => Promise<void>;
 }) {
-  const displayedTracks = selected.tracks.filter((track) =>
-    ["click", "guide", "drums", "bass", "keys", "guitar", "vocals", "other", "midi", "lighting", "video"].includes(track.kind)
-  );
-  const totalBars = Math.max(
-    ...selected.sections.map((section) => section.startBar + section.lengthBars - 1)
-  );
-  const playProgress = audio.hasLoadedAudio && (audio.status.durationSeconds ?? 0) > 0
-    ? Math.min(100, ((audio.status.positionSeconds ?? 0) / (audio.status.durationSeconds ?? 1)) * 100)
-    : 29;
-  const previousSong = adjacentSong(setlist, selected.id, -1);
   const nextSong = adjacentSong(setlist, selected.id, 1);
-  const transportBusy = Boolean(audio.status.transitionActive);
-  const transportPlaying = Boolean(audio.status.playing);
-
-  return (
-    <section className="studio-dashboard">
-      <div className="dashboard-top">
-        <div className="panel dashboard-setlist">
-          <div className="dashboard-panel-head">
-            <div>
-              <h2>Setlist</h2>
-              <span>{setlist.songs.length} Songs · 42 min</span>
-            </div>
-            <div className="head-actions">
-              <button className="primary compact" onClick={onImport}>
-                <Plus size={14} /> Add Song
-              </button>
-              <button className="compact">Reorder</button>
-              <button className="compact">•••</button>
-            </div>
-          </div>
-
-          <div className="dashboard-song-row header">
-            <span>#</span><span>Title</span><span>Artist</span><span>BPM</span><span>Key</span>
-            <span>Time</span><span>Tracks</span><span>Lights</span><span>Video</span><span>MIDI</span><span>Status</span>
-          </div>
-
-          {setlist.songs.map((song, index) => (
-            <button
-              key={song.id}
-              className={selected.id === song.id ? "dashboard-song-row selected" : "dashboard-song-row"}
-              onClick={() => onSelect(song)}
-            >
-              <span className="song-number">{index + 1}</span>
-              <span className="song-title">{song.title}</span>
-              <span>{song.artist}</span>
-              <span>{song.bpm}</span>
-              <span>{song.key}</span>
-              <span>{fmt(song.durationSeconds)}</span>
-              <span><i className="mini green" /></span>
-              <span><i className="mini pink" /></span>
-              <span><i className="mini blue" /></span>
-              <span><i className="mini cyan" /></span>
-              <span className="ready">Ready</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="panel dashboard-now">
-          <div className="dashboard-panel-head">
-            <h2>Now Playing</h2>
-          </div>
-          <div className="now-song">
-            <div className="album-art">
-              <div className="album-glow" />
-              <Music2 size={24} />
-            </div>
-            <div>
-              <strong>{selected.title}</strong>
-              <span>{selected.artist}</span>
-              <span>Key: {selected.key} · BPM: {selected.bpm} · {selected.meter.join("/")}</span>
-            </div>
-          </div>
-          <div className="now-progress">
-            <div><span style={{ width: playProgress + "%" }} /></div>
-            <small>
-              {audio.hasLoadedAudio ? fmtClock(audio.status.positionSeconds ?? 0) : "1:24"} / {audio.hasLoadedAudio ? fmtClock(audio.status.durationSeconds ?? selected.durationSeconds) : fmt(selected.durationSeconds)}
-            </small>
-          </div>
-          <div className="now-controls">
-            <button
-              disabled={!previousSong}
-              onClick={() => previousSong && onSelect(previousSong)}
-              aria-label="Previous song"
-            >
-              <ChevronLeft size={18} />
-            </button>
-            <button
-              className="play-square"
-              onClick={() =>
-                void (transportPlaying || transportBusy ? onPause() : onStart())
-              }
-              disabled={!audio.hasLoadedAudio}
-              aria-label={
-                transportBusy
-                  ? "Cancel count-in"
-                  : transportPlaying
-                    ? "Pause"
-                    : "Play"
-              }
-            >
-              <Play size={19} fill="currentColor" />
-            </button>
-            <button
-              disabled={!nextSong}
-              onClick={() => nextSong && onSelect(nextSong)}
-              aria-label="Next song"
-            >
-              <ChevronRight size={18} />
-            </button>
-          </div>
-          <div className="next-song-card">
-            <small>NEXT SONG</small>
-            <strong>{nextSong?.title ?? "End of Set"}</strong>
-            <span>{nextSong ? nextSong.bpm + " BPM" : "No song queued"}</span>
-          </div>
-        </div>
-
-        <div className="panel dashboard-master">
-          <div className="dashboard-panel-head"><h2>Master</h2></div>
-          <div className="master-meter-stage">
-            {[0.72, 0.91, 0.82, audio.status.peakLeft ?? 0.42].map((level, index) => (
-              <div className="vertical-meter" key={index}>
-                <i style={{ height: (level * 100) + "%" }} />
-              </div>
-            ))}
-            <div className="master-scale">
-              <strong>-6.2 dB</strong>
-              <span>0</span><span>-6</span><span>-12</span><span>-24</span><span>-60</span>
-            </div>
-          </div>
-          <div className="master-actions">
-            <button>M</button><button>DIM</button><button className="master-knob" aria-label="Master level" />
-          </div>
-        </div>
-
-        <div className="panel dashboard-sync">
-          <div className="dashboard-panel-head">
-            <h2>Global Tempo & Sync</h2>
-            <button className="bare">•••</button>
-          </div>
-          <label>
-            <span>Tempo</span>
-            <div className="sync-line"><strong>{selected.bpm.toFixed(1)}</strong><button>TAP</button></div>
-          </label>
-          <label>
-            <span>Time Signature</span>
-            <div className="sync-signature"><strong>{selected.meter[0]}</strong><b>/</b><strong>{selected.meter[1]}</strong></div>
-          </label>
-          <label>
-            <span>Song Start Count-In</span>
-            <div className="segmented">
-              <button
-                className={selected.countIn.mode === "none" ? "active" : ""}
-                onClick={() =>
-                  onSongChange({ ...selected, countIn: { mode: "none" } })
-                }
-              >
-                Off
-              </button>
-              <button
-                className={
-                  selected.countIn.mode === "bars" &&
-                  selected.countIn.value === 1
-                    ? "active"
-                    : ""
-                }
-                onClick={() =>
-                  onSongChange({
-                    ...selected,
-                    countIn: { mode: "bars", value: 1 }
-                  })
-                }
-              >
-                1 Bar
-              </button>
-              <button
-                className={
-                  selected.countIn.mode === "bars" &&
-                  selected.countIn.value === 2
-                    ? "active"
-                    : ""
-                }
-                onClick={() =>
-                  onSongChange({
-                    ...selected,
-                    countIn: { mode: "bars", value: 2 }
-                  })
-                }
-              >
-                2 Bars
-              </button>
-              <button
-                className={
-                  selected.countIn.mode === "beats" &&
-                  selected.countIn.value === 4
-                    ? "active"
-                    : ""
-                }
-                onClick={() =>
-                  onSongChange({
-                    ...selected,
-                    countIn: { mode: "beats", value: 4 }
-                  })
-                }
-              >
-                4 Beats
-              </button>
-            </div>
-          </label>
-          <div className="sync-toggle">
-            <span>Manual Jumps: {selected.manualJumpCountIn.mode === "adaptive" ? "Adaptive Count" : "No Count"}</span>
-            <i className={selected.manualJumpCountIn.mode === "adaptive" ? "on" : ""} />
-          </div>
-          <div className="sync-toggle"><span>Follow Song Tempo</span><i className="on" /></div>
-        </div>
+  const playing = Boolean(audio.status.playing);
+  const busy = Boolean(audio.status.transitionActive || audio.status.countInActive);
+  const [selecting, setSelecting] = useState(false);
+  const duration = audio.status.durationSeconds ?? 0;
+  const position = audio.status.positionSeconds ?? 0;
+  const progress = audio.hasLoadedAudio && duration > 0 ? Math.min(100, position / duration * 100) : 0;
+  const transportState = busy ? "COUNT / TRANSITION" : playing ? "PLAYING" : audio.hasLoadedAudio ? "STOPPED · AUDIO LOADED" : "SELECTED · NO AUDIO LOADED";
+  const select = async (song: Song) => { setSelecting(true); try { await onSelect(song); } finally { setSelecting(false); } };
+  return <section className="service-desk">
+    <header className="service-heading"><div><small>SERVICE / SHOW</small><h1>Your running order</h1><p>Select an item to load its audio. Playback starts only when you press Play.</p></div><button className="primary" onClick={onImport}><Plus size={16}/> Import audio</button></header>
+    <div className="service-columns">
+      <div className="panel service-order"><header><h2>Running order</h2><span>{setlist.songs.length} items · {fmt(setlist.songs.reduce((sum,song)=>sum+song.durationSeconds,0))}</span></header>
+        {setlist.songs.map((song,index)=><button key={song.id} className={"service-item "+(song.id===selected.id?"selected":"")} disabled={playing||busy||selecting} onClick={()=>void select(song)}><span className="order-number">{String(index+1).padStart(2,"0")}</span><span><strong>{song.title}</strong><small>{song.artist || "Untitled artist"} · {song.tracks.filter(t=>t.media?.path).length} audio files assigned</small></span><span>{song.bpm}<small>BPM</small></span><span>{song.key}<small>{song.meter.join("/")}</small></span><span className="item-state">{song.id===selected.id?"SELECTED":"LOAD"}</span></button>)}
+        {(playing||busy)&&<p className="service-note">Pause playback before loading another item.</p>}
       </div>
-
-      <div className="panel dashboard-arrangement">
-        <div className="arrangement-toolbar">
-          <div className="arrangement-title">
-            <h2>Song Arrangement</h2>
-            <span>{selected.title}⌄</span>
-          </div>
-          <div className="arrangement-tools">
-            <button onClick={onOpenArrangement}>Edit</button>
-            <button>Zoom −</button><button>Zoom +</button><button>Snap: Bar⌄</button>
-          </div>
-        </div>
-
-        <div className="arrangement-shell">
-          <div className="dashboard-timeline">
-            <div className="timeline-clock">
-              <span>0:00</span><span>0:30</span><span>1:00</span><span>1:30</span><span>2:00</span><span>2:30</span><span>3:00</span><span>4:00</span><span>{fmt(selected.durationSeconds)}</span>
-            </div>
-            <div className="dashboard-ruler">
-              {selected.sections.map((section) => (
-                <div
-                  key={section.id}
-                  style={{ flex: section.lengthBars, background: section.color }}
-                >
-                  {section.name.toUpperCase()}
-                </div>
-              ))}
-            </div>
-            {displayedTracks.map((track, index) => (
-              <div className="dashboard-track" key={track.id}>
-                <div className="dashboard-track-label">
-                  <button>S</button><button>M</button>
-                  <i style={{ background: track.color }} />
-                  <span>{track.name}</span>
-                </div>
-                <div className={"dashboard-lane lane-" + track.kind}>
-                  {track.kind === "lighting" ? (
-                    <LightingAutomation />
-                  ) : track.kind === "video" ? (
-                    <VideoLane />
-                  ) : (
-                    <Waveform seed={index + 8} color={track.color} />
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-
-          <div className="dashboard-section-inspector">
-            <div className="inspector-tabs"><button>Song</button><button className="active">Section</button></div>
-            <Field label="Section Name" value="Chorus 1" />
-            <Field label="Start" value="57.1.1" />
-            <Field label="End" value="73.1.1" />
-            <Field label="Length" value="16 bars" />
-            <Field label="Tempo" value="Follow Song" />
-            <Field label="Signature" value={selected.meter.join("/")} />
-            <Field label="Lighting Cue" value="Chorus Wide" />
-            <Field label="MIDI Patch" value="12 · Chorus" />
-            <Field label="Video Background" value="03" />
-            <button className="duplicate-section">Duplicate Section</button>
-          </div>
-        </div>
-      </div>
-
-      <div className="dashboard-bottom">
-        <div className="panel dashboard-pads">
-          <div className="dashboard-panel-head">
-            <h2>Pads</h2><button className="bare">•••</button>
-          </div>
-          <div className="mini-bank-tabs"><button className="active">Bank A</button><button>Bank B</button><button>Bank C</button><button>+</button></div>
-          <div className="mini-pad-grid">
-            {["Kick","Snare","Clap","Hat","Perc","Ride","Crash","Atmos","Bass","Piano","FX","Vocal"].map((name, index) => (
-              <button key={name} style={{ "--pad-color": ["#fb5c72","#f4ce53","#38e0b7","#36d2d7","#8058ef","#65a4ff","#46bfd7","#8f68ff","#fb5b72","#32d5bf","#8a58ef","#e65ad4"][index] } as CSSProperties}>
-                <span>{index + 1}</span><strong>{name}</strong>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="panel dashboard-mini-mixer">
-          <div className="dashboard-panel-head">
-            <h2>Mixer</h2>
-            <span>🔒</span>
-          </div>
-          <div className="mini-mixer-channels">
-            {displayedTracks.filter((track) => !["midi","lighting","video"].includes(track.kind)).slice(0, 7).map((track, index) => (
-              <div className="mini-channel" key={track.id}>
-                <strong>{track.name}</strong>
-                <i className="channel-accent" style={{ background: track.color }} />
-                <div className="mini-meter"><span style={{ height: (38 + (index * 11) % 54) + "%" }} /></div>
-                <div className="mini-fader"><i style={{ bottom: (26 + (index * 7) % 48) + "%" }} /></div>
-                <div className="mini-channel-actions"><button>S</button><button>M</button></div>
-              </div>
-            ))}
-            <div className="mini-channel master">
-              <strong>Master</strong><i className="channel-accent" />
-              <div className="mini-meter"><span style={{ height: "82%" }} /></div>
-              <div className="mini-fader"><i style={{ bottom: "48%" }} /></div>
-              <div className="mini-channel-actions"><button>S</button><button>M</button></div>
-            </div>
-          </div>
-        </div>
-
-        <div className="panel dashboard-connections">
-          <div className="dashboard-panel-head"><h2>Connections</h2><button className="bare">↗</button></div>
-          {[
-            ["Audio", audio.status.deviceName ?? "Default Output", audio.status.initialized],
-            ["MIDI", "IAC Driver", true],
-            ["LumaRig", "192.168.1.50", true],
-            ["Video", "NDI", true],
-            ["Remote", "iPad", true]
-          ].map(([name, detail, ok]) => (
-            <div className="connection-line" key={String(name)}>
-              <span className="connection-icon">{String(name).slice(0,1)}</span>
-              <strong>{String(name)} <small>({String(detail)})</small></strong>
-              <span className={ok ? "conn-ready" : "conn-idle"}>{ok ? "Connected" : "Idle"}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="panel dashboard-shortcuts">
-          <div className="dashboard-panel-head"><h2>Shortcuts</h2><button className="bare">•••</button></div>
-          {[
-            ["Space", "Play / Stop"],
-            ["→", "Next Section"],
-            ["←", "Previous Section"],
-            ["⌘ + 1", "Go to Section 1"],
-            ["⌘ + L", "Toggle Lights"],
-            ["⌘ + M", "Toggle Metronome"]
-          ].map(([key, action]) => (
-            <div className="shortcut-line" key={key + action}><kbd>{key}</kbd><span>{action}</span></div>
-          ))}
-        </div>
-      </div>
-    </section>
-  );
+      <aside className="panel service-transport"><span className={"service-state "+(playing?"playing":"")}>{selecting?"LOADING ITEM":transportState}</span><h2>{selected.title}</h2><p>{selected.bpm} BPM · {selected.key} · {selected.meter.join("/")}</p>
+        <div className="service-progress" role="progressbar" aria-label="Audio position" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><i style={{width:progress+"%"}}/></div><div className="service-times"><span>{fmtClock(position)}</span><span>{fmtClock(duration)}</span></div>
+        <button className="service-play" disabled={!audio.hasLoadedAudio||selecting} onClick={()=>void(playing||busy?onPause():onStart())}>{playing||busy?"PAUSE / CANCEL":"PLAY LOADED AUDIO"}</button>
+        {!audio.hasLoadedAudio&&<p className="service-note">Import or load audio before playback. No audio is currently ready.</p>}
+        <div className="service-next"><small>NEXT IN RUNNING ORDER</small><strong>{nextSong?.title??"End of service"}</strong><span>{nextSong?"Not loaded. Select it when ready.":"No next item."}</span></div>
+      </aside>
+      <section className="panel service-preparation"><header><h2>Prepare selected item</h2><button onClick={onOpenArrangement}>Open arrangement →</button></header><div className="preparation-grid"><div><small>STRUCTURE</small><strong>{selected.sections.length} sections</strong><p>{selected.sections.map(section=>section.name).join(" → ") || "No sections defined"}</p></div><div><small>START COUNT-IN</small><div className="count-options">{([0,1,2] as const).map(bars=><button key={bars} disabled={playing||busy} className={(bars===0?selected.countIn.mode==="none":selected.countIn.mode==="bars"&&selected.countIn.value===bars)?"active":""} onClick={()=>onSongChange({...selected,countIn:bars===0?{mode:"none"}:{mode:"bars",value:bars}})}>{bars===0?"Off":bars+ (bars===1?" bar":" bars")}</button>)}</div><p>Applies to this item. Configure guide routing in Connections.</p></div></div></section>
+      <aside className="panel service-health"><header><h2>Audio status</h2></header><strong>{audio.status.deviceName??"No device initialized"}</strong><p>{audio.status.deviceError||(!audio.status.initialized?"Load audio to initialize the native engine.":"Engine initialized. Validate the physical output before the show.")}</p><div className="actual-meters">{([audio.status.peakLeft??0,audio.status.peakRight??0]).map((level,index)=><div key={index}><span>{index===0?"L":"R"}</span><meter min={0} max={1} value={level} aria-label={index===0?"Left audio peak":"Right audio peak"}/></div>)}</div></aside>
+    </div>
+  </section>;
 }
 
 function SongsPage({
@@ -2945,8 +2625,8 @@ function Connections({
         ? audio.status.sampleRate.toLocaleString() + " Hz · native engine"
         : "Initialize by loading a multitrack"
     ],
-    ["MIDI", "LumaRig MIDI (Virtual)", "Clock + Start/Stop"],
-    ["Clock Sync", "Internal (LumaRig)", "Song tempo"],
+    ["MIDI", "Check MIDI settings", "Device availability is not monitored here"],
+    ["Clock Sync", "Studio song tempo", "External clock lock is not monitored"],
     ["Lighting", lumarig.peer?.name ?? "LumaRig", lumarig.state === "connected" ? "Direct bridge connected" : "Not connected"],
     ["Network", "Supabase Realtime", "Studio owns the remote relay session"]
   ];
@@ -3143,14 +2823,7 @@ function SettingsPage({ audio }: { audio: AudioEngineController }) {
 
         <div className="panel settings-card">
           <h3>Performance Safety</h3>
-          <p>
-            AI jobs pause during Performance Mode. Editing actions can be locked
-            while a show is live.
-          </p>
-          <label className="toggle-line">
-            <span>Live Performance Lock</span>
-            <input type="checkbox" defaultChecked />
-          </label>
+          <p>Check the audio device, loaded stems, count-in route and external connections before a service. A performance lock is not currently enforced.</p>
         </div>
       </div>
     </section>
@@ -3193,167 +2866,27 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ImportWizard({
-  audio,
-  onNativeLoaded,
-  onClose
-}: {
+function ImportWizard({ audio, onNativeLoaded, onClose }: {
   audio: AudioEngineController;
   onNativeLoaded: (tracks: NativeAudioTrack[], status: NativeAudioStatus) => void;
   onClose: () => void;
 }) {
-  const steps: ImportStep[] = ["source", "analyze", "stems", "sections", "review"];
-  const [step, setStep] = useState<ImportStep>("source");
-  const index = steps.indexOf(step);
-  const next = () => setStep(steps[Math.min(steps.length - 1, index + 1)]);
-
+  const [error, setError] = useState('');
+  const [working, setWorking] = useState(false);
   async function importMultitrack() {
-    const result = await audio.chooseAndLoad();
-    if (result) onNativeLoaded(result.tracks, result.status);
+    if (working) return;
+    setWorking(true); setError('');
+    try {
+      const result = await audio.chooseAndLoad();
+      if (result) onNativeLoaded(result.tracks, result.status);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : String(cause)); }
+    finally { setWorking(false); }
   }
-
-  return (
-    <div className="modal-backdrop">
-      <div className="import-modal panel">
-        <div className="modal-head">
-          <div>
-            <small>ADD SONG</small>
-            <h2>
-              {["Choose Source", "Analyze Song", "Split Stems", "Map Sections", "Review + Create"][index]}
-            </h2>
-          </div>
-          <button onClick={onClose}>×</button>
-        </div>
-
-        <div className="stepper">
-          {steps.map((item, itemIndex) => (
-            <div key={item} className={itemIndex <= index ? "step active" : "step"}>
-              <i>{itemIndex + 1}</i>
-              <span>{item}</span>
-            </div>
-          ))}
-        </div>
-
-        {step === "source" && (
-          <div className="source-step">
-            <div className="dropzone">
-              <Upload size={34} />
-              <h3>Drop a song here</h3>
-              <p>WAV, MP3, M4A or a licensed multitrack folder</p>
-              <button
-                className="primary"
-                disabled={audio.busy}
-                onClick={() => void importMultitrack()}
-              >
-                {audio.busy ? "Loading…" : "Choose WAV Stems"}
-              </button>
-            </div>
-            {audio.error && <div className="audio-error">{audio.error}</div>}
-            <div className="source-options">
-              <button disabled={audio.busy} onClick={() => void importMultitrack()}>
-                <Upload />
-                <strong>Import Multitrack</strong>
-                <span>Aligned WAV stems · real native playback</span>
-              </button>
-              <button onClick={next}>
-                <WandSparkles />
-                <strong>Split Stereo Song</strong>
-                <span>AI stem separation</span>
-              </button>
-              <button onClick={next}>
-                <Plus />
-                <strong>Empty Song</strong>
-                <span>Start from scratch</span>
-              </button>
-            </div>
-          </div>
-        )}
-
-        {step === "analyze" && (
-          <div className="analyze-step">
-            <div className="analysis-file">
-              <Music2 />
-              <div>
-                <strong>Goodness of God.wav</strong>
-                <span>5:18 · 44.1 kHz · Stereo</span>
-              </div>
-            </div>
-            <div className="analysis-stats">
-              <Field label="Tempo" value="63 BPM" />
-              <Field label="Key" value="Ab Major" />
-              <Field label="Time Signature" value="4/4" />
-              <Field label="Downbeat" value="0:00.842" />
-            </div>
-            <button className="primary wide" onClick={next}>
-              Continue to Stem Split
-            </button>
-          </div>
-        )}
-
-        {step === "stems" && (
-          <div className="stem-step">
-            <h3>Stem Separation</h3>
-            <p>Band Split creates performance-ready track columns automatically.</p>
-            <div className="stem-cards">
-              <button>
-                <strong>Quick Split</strong>
-                <span>Drums · Bass · Vocals · Music</span>
-              </button>
-              <button className="selected">
-                <strong>Band Split</strong>
-                <span>Drums · Bass · Vocals · Guitar · Keys · Other</span>
-              </button>
-              <button>
-                <strong>Vocals / Instrumental</strong>
-                <span>Fast two-track split</span>
-              </button>
-            </div>
-            <div className="processing">
-              <Sparkles />
-              <div>
-                <strong>Ready to separate locally</strong>
-                <span>AI processing will run outside the realtime audio thread.</span>
-              </div>
-            </div>
-            <button className="primary wide" onClick={next}>Start Separation</button>
-          </div>
-        )}
-
-        {step === "sections" && (
-          <div className="map-step">
-            <div className="mini-wave">
-              <Waveform seed={4} color="#60a5fa" />
-            </div>
-            <div className="section-buttons">
-              {["INTRO", "VERSE", "PRE", "CHORUS", "BRIDGE", "TAG", "INSTRUMENTAL", "OUTRO"].map(
-                (label) => <button key={label}>{label}</button>
-              )}
-            </div>
-            <p>
-              Tap a section while the song plays. The next marker closes the
-              previous section and snaps to the nearest bar.
-            </p>
-            <button className="primary wide" onClick={next}>Looks Good</button>
-          </div>
-        )}
-
-        {step === "review" && (
-          <div className="review-step">
-            <div className="review-checks">
-              {[
-                "Tempo, key and downbeat analyzed",
-                "6 stems mapped to track columns",
-                "8 sections mapped to the musical grid",
-                "Click + guide lanes prepared",
-                "MIDI, lighting and video lanes ready"
-              ].map((label) => (
-                <div key={label}><span className="dot ok" />{label}</div>
-              ))}
-            </div>
-            <button className="primary wide" onClick={onClose}>Create Song</button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+  return <div className="modal-backdrop"><div className="import-modal panel native-import">
+    <div className="modal-head"><div><small>MEDIA / MULTITRACK</small><h2>Import audio files</h2></div><button aria-label="Close import" disabled={working} onClick={onClose}>×</button></div>
+    <div className="native-import-body"><Upload size={32}/><h3>Choose your song’s audio</h3><p>The native file picker loads files into the audio engine and assigns them to the selected song. Confirm alignment and output routing in Build after import.</p>
+    <button className="primary" disabled={working || audio.busy} onClick={() => void importMultitrack()}>{working || audio.busy ? 'LOADING AUDIO…' : 'CHOOSE AUDIO FILES'}</button>
+    {(error || audio.error) && <p className="audio-error" role="alert">{error || audio.error}</p>}
+    <small>Stem separation, automatic tempo/key analysis and section detection are not included in this import.</small></div>
+  </div></div>;
 }
