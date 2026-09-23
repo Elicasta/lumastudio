@@ -39,7 +39,9 @@ export function buildRemoteStudioState({
   currentSectionIndex,
   previewPlaying,
   audioStatus,
-  queuedSectionIndex = null
+  queuedSectionIndex = null,
+  lightingConnected = false,
+  lightingBlackout = false
 }: {
   setlist: Setlist;
   song: Song;
@@ -47,6 +49,8 @@ export function buildRemoteStudioState({
   previewPlaying: boolean;
   audioStatus: NativeAudioStatus;
   queuedSectionIndex?: number | null;
+  lightingConnected?: boolean;
+  lightingBlackout?: boolean;
 }): RemoteStudioState {
   const safeSectionIndex = clampSectionIndex(song, currentSectionIndex);
   const currentSection = song.sections[safeSectionIndex];
@@ -65,6 +69,11 @@ export function buildRemoteStudioState({
   const audioTracks = song.tracks.filter(
     (track) => !["midi", "lighting", "video"].includes(track.kind)
   );
+  const lightingScenes = [...new Map(song.sections.flatMap((section) =>
+    section.lightingCue
+      ? [[section.lightingCue, { id: section.lightingCue, name: section.name, color: section.color, active: false }] as const]
+      : []
+  )).values()];
 
   return {
     protocolVersion: REMOTE_PROTOCOL_VERSION,
@@ -136,20 +145,15 @@ export function buildRemoteStudioState({
       color: track.color
     })),
     lighting: {
-      blackout: false,
+      blackout: lightingBlackout,
       x: 0.5,
       y: 0.5,
-      scenes: [
-        { id: "clean", name: "Clean", color: "#60a5fa", active: false },
-        { id: "verse", name: "Verse", color: "#34d399", active: false },
-        { id: "chorus", name: "Chorus", color: "#f472b6", active: false },
-        { id: "bridge", name: "Bridge", color: "#a78bfa", active: false }
-      ]
+      scenes: lightingScenes
     },
     health: {
       audio: Boolean(audioStatus.initialized) && !audioStatus.deviceError,
       midi: false,
-      lighting: false,
+      lighting: lightingConnected,
       remote: true
     }
   };
