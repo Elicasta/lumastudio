@@ -7,6 +7,7 @@ export function useLumaRig() {
   const clientRef = useRef<LumaRigClient | null>(null);
   if (!clientRef.current) clientRef.current = new LumaRigClient();
   const [state, setState] = useState<LumaRigConnectionState>("disconnected");
+  const [connectionEpoch, setConnectionEpoch] = useState(0);
   const [peer, setPeer] = useState<LumaRigPeer | null>(null);
   const [error, setError] = useState("");
 
@@ -29,6 +30,7 @@ export function useLumaRig() {
     setState("connecting");
     try {
       await clientRef.current!.connect(target);
+      setConnectionEpoch((value) => value + 1);
       refresh();
     } catch (cause) {
       if (operation.current === currentOperation) { setError(cause instanceof Error ? cause.message : String(cause)); refresh(); }
@@ -61,7 +63,7 @@ export function useLumaRig() {
     const probe = async () => {
       const client = clientRef.current!;
       if (!disposed && autoConnectAllowed.current && client.state === "disconnected") {
-        try { await client.connect(loopbackLumaRigPeer()); delay = 2000; refresh(); }
+        try { await client.connect(loopbackLumaRigPeer()); delay = 2000; setConnectionEpoch((value) => value + 1); refresh(); }
         catch (cause) {
           if (disposed) return;
           const message = cause instanceof Error ? cause.message : String(cause);
@@ -78,5 +80,5 @@ export function useLumaRig() {
     return () => { disposed = true; window.clearTimeout(retry); window.clearInterval(status); void clientRef.current?.disconnect(); };
   }, [refresh]);
 
-  return { state, peer, error, latencyMs, lastMessageAt, connect, disconnect, send, resolveSong };
+  return { state, connectionEpoch, peer, error, latencyMs, lastMessageAt, connect, disconnect, send, resolveSong };
 }
