@@ -1137,7 +1137,7 @@ export function App() {
 
           {project.setlist.songs.length > 0 && page === "live" && (<>
             <div className="live-layout-switch" role="group" aria-label="Live workspace"><button className={liveLayout==="session"?"active":""} onClick={()=>setLiveLayout("session")}>SESSION</button><button className={liveLayout==="performance"?"active":""} onClick={()=>setLiveLayout("performance")}>PERFORMANCE</button></div>
-            {liveLayout === "session" ? <SessionView song={selectedSong} current={currentSection} queued={queuedManualSection} audio={audio} onLaunch={launchSection} onSongChange={setSelectedSong} onStop={stopPlayback}/> : <Performance
+            {liveLayout === "session" ? <SessionView song={selectedSong} current={currentSection} queued={queuedManualSection} audio={audio} onLaunch={async (index) => { await launchSection(index); }} onSongChange={setSelectedSong} onStop={stopPlayback}/> : <Performance
               song={selectedSong}
               current={currentSection}
               nextSong={adjacentSong(project.setlist, selectedSong.id, 1)}
