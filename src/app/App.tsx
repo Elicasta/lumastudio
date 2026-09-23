@@ -122,6 +122,16 @@ export function App() {
   const audio = useAudioEngine();
   const lumarig = useLumaRig();
   const [remoteLightingBlackout, setRemoteLightingBlackout] = useState(false);
+  const [playingPadIds, setPlayingPadIds] = useState<Set<string>>(() => new Set());
+  const padSlots = useMemo(() => makePadSlots(project.pads), [project.pads]);
+  const visiblePadSlots = padSlots.slice(0, project.padCount ?? 12);
+  const stopAllPadVoices = useCallback(async () => {
+    await Promise.allSettled(Array.from({ length: 16 }, (_, index) => stopNativePad(index)));
+    setPlayingPadIds(new Set());
+  }, []);
+  useEffect(() => () => {
+    for (let index = 0; index < 16; index += 1) void stopNativePad(index);
+  }, []);
   recoverySnapshotRef.current = { ...project, setlist: { ...project.setlist, songs: project.setlist.songs.map(song => song.id === selectedSong.id ? selectedSong : song) } };
   useEffect(() => {
     if (pendingRecovery) return;
@@ -630,9 +640,45 @@ export function App() {
           return ok();
         }
 
-        case "pad.trigger":
-        case "pad.release":
-          return reject("Pad audio runtime is not wired yet.");
+        case "pad.trigger": {
+          const id = String(message.payload?.id ?? "").trim();
+          const index = visiblePadSlots.findIndex((slot) => slot.id === id);
+          if (index < 0) return reject("Pad not found in the active pad bank.");
+          const slot = visiblePadSlots[index];
+          if (!slot.path) return reject("Load audio into this pad before triggering it.");
+
+          if (slot.mode === "latch" && playingPadIds.has(slot.id)) {
+            await releaseNativePad(index);
+            setPlayingPadIds((current) => {
+              const next = new Set(current);
+              next.delete(slot.id);
+              return next;
+            });
+            return ok();
+          }
+
+          await loadNativePad(index, slot);
+          await triggerNativePad(index);
+          if (slot.mode !== "one-shot") {
+            setPlayingPadIds((current) => new Set(current).add(slot.id));
+          }
+          return ok();
+        }
+
+        case "pad.release": {
+          const id = String(message.payload?.id ?? "").trim();
+          const index = visiblePadSlots.findIndex((slot) => slot.id === id);
+          if (index < 0) return reject("Pad not found in the active pad bank.");
+          const slot = visiblePadSlots[index];
+          if (slot.mode !== "hold") return ok();
+          await releaseNativePad(index);
+          setPlayingPadIds((current) => {
+            const next = new Set(current);
+            next.delete(slot.id);
+            return next;
+          });
+          return ok();
+        }
 
         case "lighting.blackout": {
           if (lumarig.state !== "connected") return reject("LumaRig is not connected.");
@@ -675,7 +721,9 @@ export function App() {
       selectedSong.sections,
       project.setlist,
       lumarig.state,
-      lumarig.send
+      lumarig.send,
+      visiblePadSlots,
+      playingPadIds
     ]
   );
 
@@ -689,9 +737,11 @@ export function App() {
         audioStatus: audio.status,
         queuedSectionIndex: queuedManualSection,
         lightingConnected: lumarig.state === "connected",
-        lightingBlackout: remoteLightingBlackout
+        lightingBlackout: remoteLightingBlackout,
+        pads: visiblePadSlots,
+        activePadIds: playingPadIds
       }),
-    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong, project.setlist, lumarig.state, remoteLightingBlackout]
+    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong, project.setlist, lumarig.state, remoteLightingBlackout, visiblePadSlots, playingPadIds]
   );
 
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
@@ -736,6 +786,7 @@ export function App() {
     try {
       const opened = await openProject();
       if (!opened) return;
+      await stopAllPadVoices();
       const song = selectedServiceSong(opened.project.setlist.songs, opened.project.selectedSongId);
       if (song || audio.hasLoadedAudio) {
         const loaded = await audio.loadTracks(song ? nativeTracksForSong(song) : []);
@@ -756,6 +807,7 @@ export function App() {
     if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) { setProjectError("Stop playback before starting a new service."); return; }
     if ((project.setlist.songs.length || projectPath) && !window.confirm("Create a new service? Save your current service first if you need to keep recent changes.")) return;
     if (audio.hasLoadedAudio && !await audio.loadTracks([])) { setProjectError("Cannot clear the current audio. The service was not changed."); return; }
+    await stopAllPadVoices();
     const blank = createProject("New Service");
     setProject(blank);
     setProjectPath(undefined);
@@ -780,6 +832,7 @@ export function App() {
 
   async function restoreService() {
     if (!pendingRecovery || audio.status.playing || audio.status.transitionActive) return;
+    await stopAllPadVoices();
     const recovered = pendingRecovery.project;
     const song = selectedServiceSong(recovered.setlist.songs, recovered.selectedSongId);
     if (song && nativeTracksForSong(song).length && !await audio.loadTracks(nativeTracksForSong(song))) {
@@ -2270,27 +2323,29 @@ const padNames = [
   "Ritual"
 ];
 
+function makePadSlots(initialPads?: PadSlot[]): PadSlot[] {
+  const defaults: PadSlot[] = Array.from(
+    { length: 16 },
+    (_, index) => padNames[index] ?? `Pad ${index + 1}`
+  ).map((name, index): PadSlot => ({
+    id: `pad-${index + 1}`,
+    name,
+    mode: "latch",
+    gainDb: 0,
+    octave: 0,
+    width: 70,
+    attackMs: 10,
+    releaseMs: 1800
+  }));
+  return defaults.map((slot, index) => initialPads?.[index] ? { ...slot, ...initialPads[index] } : slot);
+}
+
 function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlot[]; initialPadCount?: 12 | 16; onChange: (pads: PadSlot[], padCount: 12 | 16) => void }) {
   const [active, setActive] = useState(0);
   const [padCount, setPadCount] = useState<12 | 16>(initialPadCount ?? 12);
   const [playing, setPlaying] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
-  const [pads, setPads] = useState<PadSlot[]>(() => {
-    const defaults: PadSlot[] = Array.from(
-      { length: 16 },
-      (_, index) => padNames[index] ?? `Pad ${index + 1}`
-    ).map((name, index): PadSlot => ({
-      id: `pad-${index + 1}`,
-      name,
-      mode: "latch",
-      gainDb: 0,
-      octave: 0,
-      width: 70,
-      attackMs: 10,
-      releaseMs: 1800
-    }));
-    return defaults.map((slot, index) => initialPads?.[index] ? { ...slot, ...initialPads[index] } : slot);
-  });
+  const [pads, setPads] = useState<PadSlot[]>(() => makePadSlots(initialPads));
   const pad = pads[active];
 
   const onChangeRef = useRef(onChange);
