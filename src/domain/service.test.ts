@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createServiceSong, reflowSongSections, selectedServiceSong } from "./service";
+import { createServiceSong, moveServiceItem, reflowSongSections, selectedServiceSong } from "./service";
 
 describe("service creation", () => {
   it("creates independent items without fabricated audio or cue assignments", () => {
@@ -26,5 +26,10 @@ describe("service creation", () => {
     expect(edited.sections[1].startBar).toBe(13);
     expect(edited.guideMarkers[0].bar).toBe(14);
     expect(() => reflowSongSections(song, [first, first])).toThrow("unique");
+  });
+  it("reorders a running order while retaining the same item identities", () => {
+    const first = createServiceSong("Opening"), second = createServiceSong("Song");
+    expect(moveServiceItem([first,second], first.id, 1)).toEqual([second,first]);
+    expect(moveServiceItem([first,second], first.id, -1)).toEqual([first,second]);
   });
 });

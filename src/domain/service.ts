@@ -45,3 +45,12 @@ export function reflowSongSections(song: Song, sections: Section[]): Song {
   });
   return { ...song, sections: next, guideMarkers };
 }
+
+export function moveServiceItem(songs: Song[], id: string, direction: -1 | 1): Song[] {
+  const index = songs.findIndex(song => song.id === id);
+  const target = index + direction;
+  if (index < 0 || target < 0 || target >= songs.length) return songs;
+  const result = [...songs];
+  [result[index], result[target]] = [result[target], result[index]];
+  return result;
+}

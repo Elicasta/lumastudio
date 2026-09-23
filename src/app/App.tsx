@@ -25,10 +25,11 @@ import {
 } from "lucide-react";
 import { SessionView } from "../components/SessionView";
 import { createProject } from "../domain/project";
-import { createServiceSong, reflowSongSections, selectedServiceSong } from "../domain/service";
+import { createServiceSong, moveServiceItem, reflowSongSections, selectedServiceSong } from "../domain/service";
 import { missingMedia, projectMediaPaths, type MediaFileStatus } from "../domain/preflight";
 import { isNativeApp } from "../services/audio";
 import { openProject, saveProject } from "../services/projectStore";
+import { clearRecovery, readRecovery, writeRecovery } from "../services/recovery";
 import { chooseLocalVideo, createYouTubeClip } from "../services/video";
 import type { VideoClip, VideoProgram, VideoProgramState } from "../domain/video";
 import { VideoProgram as VideoProgramRenderer } from "../components/VideoProgram";
@@ -107,6 +108,9 @@ export function App() {
   const [projectPath, setProjectPath] = useState<string | undefined>();
   const [selectedSong, setSelectedSong] = useState<Song>(() => createServiceSong("Untitled item"));
   const [projectError, setProjectError] = useState("");
+  const [pendingRecovery, setPendingRecovery] = useState(() => readRecovery(window.localStorage));
+  const [recoveryError, setRecoveryError] = useState("");
+  const recoverySnapshotRef = useRef(project);
   const [mediaCheck, setMediaCheck] = useState<{ missing: string[]; checked: number; error?: string } | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const lumaVizMediaRef = useRef<LumaVizMediaBus>();
@@ -116,6 +120,23 @@ export function App() {
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const selectingSongRef = useRef(false);
   const audio = useAudioEngine();
+  recoverySnapshotRef.current = { ...project, setlist: { ...project.setlist, songs: project.setlist.songs.map(song => song.id === selectedSong.id ? selectedSong : song) } };
+  useEffect(() => {
+    if (pendingRecovery) return;
+    const timer = window.setTimeout(() => {
+      try {
+        writeRecovery(window.localStorage, recoverySnapshotRef.current);
+        setRecoveryError("");
+      } catch (error) { setRecoveryError(`Local recovery could not be saved: ${String(error)}`); }
+    }, 700);
+    return () => window.clearTimeout(timer);
+  }, [project, selectedSong, pendingRecovery]);
+  useEffect(() => {
+    if (pendingRecovery) return;
+    const persist = () => { try { writeRecovery(window.localStorage, recoverySnapshotRef.current); } catch { /* Shown by the ordinary save timer. */ } };
+    window.addEventListener("pagehide", persist);
+    return () => window.removeEventListener("pagehide", persist);
+  }, [pendingRecovery]);
   const mediaPaths = useMemo(() => projectMediaPaths(project), [project]);
   const checkMedia = useCallback(async () => {
     if (!isNativeApp()) { setMediaCheck({missing: [], checked: 0, error: "File preflight is available in the desktop app."}); return; }
@@ -699,6 +720,7 @@ export function App() {
       setQueuedManualSection(null);
       setPreviewPlaying(false);
       setProjectError("");
+      setPendingRecovery(null);
     } catch (error) { setProjectError(String(error)); }
   }
 
@@ -714,6 +736,7 @@ export function App() {
     setCurrentSection(0);
     setPreviewPlaying(false);
     setProjectError("");
+    setPendingRecovery(null);
     setShowTool("setlist"); setPage("show");
   }
 
@@ -725,6 +748,56 @@ export function App() {
     setSelectedSong(song); setCurrentSection(0); setQueuedManualSection(null);
     setProjectError("");
     return true;
+  }
+
+  async function restoreService() {
+    if (!pendingRecovery || audio.status.playing || audio.status.transitionActive) return;
+    const recovered = pendingRecovery.project;
+    const song = selectedServiceSong(recovered.setlist.songs, recovered.selectedSongId);
+    if (song && nativeTracksForSong(song).length && !await audio.loadTracks(nativeTracksForSong(song))) {
+      setProjectError("Service recovered, but its audio could not be loaded. Check the assigned files and output device.");
+    }
+    setProject(recovered); setProjectPath(undefined);
+    setSelectedSong(song ?? createServiceSong("Untitled item"));
+    setQueuedManualSection(null); setCurrentSection(0); setPreviewPlaying(false);
+    setPendingRecovery(null);
+    setShowTool("setlist"); setPage("show");
+  }
+
+  function discardRecovery() {
+    try { clearRecovery(window.localStorage); } catch { /* A blocked store cannot be cleared. */ }
+    setPendingRecovery(null);
+  }
+
+  function renameService(name: string) {
+    if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) return false;
+    const next = name.trim();
+    if (!next) return false;
+    setProject(current => ({ ...current, name: next, setlist: { ...current.setlist, name: next }, updatedAt: new Date().toISOString() }));
+    return true;
+  }
+
+  function moveItem(id: string, direction: -1 | 1) {
+    if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) return;
+    setProject(current => ({ ...current, setlist: { ...current.setlist, songs: moveServiceItem(current.setlist.songs, id, direction) }, updatedAt: new Date().toISOString() }));
+  }
+
+  async function removeItem(id: string) {
+    if (selectingSongRef.current || audio.status.playing || audio.status.transitionActive || audio.status.countInActive) return false;
+    const item = project.setlist.songs.find(song => song.id === id);
+    if (!item || !window.confirm(`Remove ${item.title} from this service? This also removes its arrangement and cues.`)) return false;
+    selectingSongRef.current = true;
+    try {
+      const remaining = project.setlist.songs.filter(song => song.id !== id);
+      const next = selectedSong.id === id ? (remaining[Math.min(project.setlist.songs.indexOf(item), remaining.length - 1)] ?? remaining[remaining.length - 1]) : selectedSong;
+      if (selectedSong.id === id && (audio.hasLoadedAudio || (next && nativeTracksForSong(next).length))) {
+        if (!await audio.loadTracks(next ? nativeTracksForSong(next) : [])) { setProjectError("Could not load the next item's audio. The current item was kept."); return false; }
+      }
+      setProject(current => ({ ...current, setlist: { ...current.setlist, songs: remaining }, selectedSongId: next?.id, updatedAt: new Date().toISOString() }));
+      if (selectedSong.id === id) { setSelectedSong(next ?? createServiceSong("Untitled item")); setCurrentSection(0); setQueuedManualSection(null); }
+      setProjectError("");
+      return true;
+    } finally { selectingSongRef.current = false; }
   }
 
   function applyPlanningCenterImport(value: PlanningCenterPlanImport) {
@@ -797,6 +870,9 @@ export function App() {
           onStop={stopPlayback}
         />}
         <div className="workspace">
+          {pendingRecovery && <aside className="service-recovery panel" role="status"><div><strong>Previous Studio service found</strong><p>{pendingRecovery.project.name} · {pendingRecovery.project.setlist.songs.length} items · last saved locally {new Date(pendingRecovery.savedAt).toLocaleString()}</p><small>Restore the show layout and file assignments. Audio output must be checked again.</small></div><div><button className="primary" onClick={() => void restoreService()}>Restore service</button><button onClick={discardRecovery}>Start fresh</button></div></aside>}
+          {!pendingRecovery && <>
+          {recoveryError && <p role="alert" className="service-error">{recoveryError}</p>}
           {project.setlist.songs.length === 0 && page !== "show" && <section className="service-empty-workspace panel"><small>NEW SERVICE</small><h1>Build the running order first</h1><p>Add a song or service item in Show. Then import its audio and prepare the arrangement.</p><button className="primary" onClick={() => { setShowTool("setlist"); setPage("show"); }}>Open running order</button></section>}
           {project.setlist.songs.length > 0 && page === "import" && (
             <Sources audio={audio} onLoaded={(tracks, status) => {
@@ -845,6 +921,9 @@ export function App() {
                   audio={audio}
                   onSelect={selectSetlistSong}
                   onAddSong={addServiceSong}
+                  onRenameService={renameService}
+                  onMoveItem={moveItem}
+                  onRemoveItem={removeItem}
                   onNewService={newService}
                   onOpenProject={openStudioProject}
                   error={projectError || audio.error || ""}
@@ -905,6 +984,7 @@ export function App() {
               onSongChange={setSelectedSong}
             />}
           </>)}
+          </>}
         </div>
       </main>
       {importOpen && (
@@ -1160,6 +1240,9 @@ function SetlistPage({
   audio,
   onSelect,
   onAddSong,
+  onRenameService,
+  onMoveItem,
+  onRemoveItem,
   onNewService,
   onOpenProject,
   error,
@@ -1176,6 +1259,9 @@ function SetlistPage({
   audio: AudioEngineController;
   onSelect: (song: Song) => void | Promise<boolean | void>;
   onAddSong: (title: string) => Promise<boolean>;
+  onRenameService: (name: string) => boolean;
+  onMoveItem: (id: string, direction: -1 | 1) => void;
+  onRemoveItem: (id: string) => Promise<boolean>;
   onNewService: () => void | Promise<void>;
   onOpenProject: () => void | Promise<void>;
   error: string;
@@ -1192,19 +1278,21 @@ function SetlistPage({
   const busy = Boolean(audio.status.transitionActive || audio.status.countInActive);
   const [selecting, setSelecting] = useState(false);
   const [newTitle, setNewTitle] = useState("");
+  const [editingServiceName, setEditingServiceName] = useState(false);
+  const [serviceNameDraft, setServiceNameDraft] = useState(setlist.name);
   const duration = audio.status.durationSeconds ?? 0;
   const position = audio.status.positionSeconds ?? 0;
   const progress = audio.hasLoadedAudio && duration > 0 ? Math.min(100, position / duration * 100) : 0;
   const transportState = busy ? "COUNT / TRANSITION" : playing ? "PLAYING" : audio.hasLoadedAudio ? "STOPPED · AUDIO LOADED" : "SELECTED · NO AUDIO LOADED";
   const select = async (song: Song) => { setSelecting(true); try { await onSelect(song); } finally { setSelecting(false); } };
   return <section className="service-desk">
-    <header className="service-heading"><div><small>SERVICE / SHOW</small><h1>{setlist.name}</h1><p>Select an item to load its audio. Playback starts only when you press Play.</p></div><div className="service-actions"><button onClick={() => void onNewService()}>New Service</button><button onClick={() => void onOpenProject()}>Open</button><button className="primary" disabled={!setlist.songs.length} onClick={onImport}><Plus size={16}/> Import audio</button></div></header>
+    <header className="service-heading"><div><small>SERVICE / SHOW</small>{editingServiceName ? <form className="service-rename" onSubmit={event => { event.preventDefault(); if (onRenameService(serviceNameDraft)) setEditingServiceName(false); }}><input aria-label="Service name" value={serviceNameDraft} onChange={event => setServiceNameDraft(event.target.value)} autoFocus maxLength={100}/><button type="submit" disabled={!serviceNameDraft.trim()||playing||busy}>Save name</button><button type="button" onClick={() => setEditingServiceName(false)}>Cancel</button></form> : <div className="service-title"><h1>{setlist.name}</h1><button aria-label="Rename service" disabled={playing||busy} onClick={() => { setServiceNameDraft(setlist.name); setEditingServiceName(true); }}>Rename</button></div>}<p>Select an item to load its audio. Playback starts only when you press Play.</p></div><div className="service-actions"><button onClick={() => void onNewService()}>New Service</button><button onClick={() => void onOpenProject()}>Open</button><button className="primary" disabled={!setlist.songs.length} onClick={onImport}><Plus size={16}/> Import audio</button></div></header>
     {error && <p role="alert" className="service-error">{error}</p>}
     <div className="service-columns">
       <div className="panel service-order"><header><h2>Running order</h2><span>{setlist.songs.length} items · {fmt(setlist.songs.reduce((sum,song)=>sum+song.durationSeconds,0))}</span></header>
         <form className="service-add-item" onSubmit={event => { event.preventDefault(); if (!newTitle.trim() || selecting || playing || busy) return; setSelecting(true); void onAddSong(newTitle).then(added => { if (added) setNewTitle(""); }).finally(() => setSelecting(false)); }}><label htmlFor="service-new-item">Add a song or service item</label><div><input id="service-new-item" value={newTitle} onChange={event=>setNewTitle(event.target.value)} placeholder="e.g. Opening worship" disabled={selecting||playing||busy}/><button type="submit" disabled={!newTitle.trim()||selecting||playing||busy}>Add item</button></div></form>
         {!setlist.songs.length && <div className="service-empty"><strong>Start with your first item</strong><p>Add an item above, then prepare its arrangement and import audio. The service starts empty.</p></div>}
-        {setlist.songs.map((song,index)=><button key={song.id} className={"service-item "+(song.id===selected.id?"selected":"")} disabled={playing||busy||selecting} onClick={()=>void select(song)}><span className="order-number">{String(index+1).padStart(2,"0")}</span><span><strong>{song.title}</strong><small>{song.artist || "Untitled artist"} · {song.tracks.filter(t=>t.media?.path).length} audio files assigned</small></span><span>{song.bpm}<small>BPM</small></span><span>{song.key}<small>{song.meter.join("/")}</small></span><span className="item-state">{song.id===selected.id?"SELECTED":"LOAD"}</span></button>)}
+        {setlist.songs.map((song,index)=><div key={song.id} className="service-item-row"><button className={"service-item "+(song.id===selected.id?"selected":"")} disabled={playing||busy||selecting} onClick={()=>void select(song)}><span className="order-number">{String(index+1).padStart(2,"0")}</span><span><strong>{song.title}</strong><small>{song.artist || "No artist"} · {song.tracks.filter(t=>t.media?.path).length} audio files assigned</small></span><span>{song.bpm}<small>BPM</small></span><span>{song.key}<small>{song.meter.join("/")}</small></span><span className="item-state">{song.id===selected.id?"SELECTED":"LOAD"}</span></button><div className="service-item-actions"><button aria-label={`Move ${song.title} earlier`} title="Move earlier" disabled={index===0||playing||busy||selecting} onClick={()=>onMoveItem(song.id,-1)}>↑</button><button aria-label={`Move ${song.title} later`} title="Move later" disabled={index===setlist.songs.length-1||playing||busy||selecting} onClick={()=>onMoveItem(song.id,1)}>↓</button><button aria-label={`Remove ${song.title}`} title="Remove item" disabled={playing||busy||selecting} onClick={()=>{setSelecting(true);void onRemoveItem(song.id).finally(()=>setSelecting(false));}}>×</button></div></div>)}
         {(playing||busy)&&<p className="service-note">Pause playback before loading another item.</p>}
       </div>
       <aside className="panel service-transport"><span className={"service-state "+(playing?"playing":"")}>{selecting?"LOADING ITEM":setlist.songs.length?transportState:"EMPTY SERVICE"}</span><h2>{setlist.songs.length?selected.title:"No item selected"}</h2><p>{setlist.songs.length?`${selected.bpm} BPM · ${selected.key} · ${selected.meter.join("/")}`:"Add an item to begin preparing your service."}</p>
