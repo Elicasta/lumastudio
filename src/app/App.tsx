@@ -572,17 +572,19 @@ export function App() {
           const gainDb = Number(message.payload?.gainDb);
           if (!Number.isFinite(gainDb)) return reject("Invalid gain value.");
 
-          setSelectedSong((song) => ({
-            ...song,
-            tracks: song.tracks.map((track) =>
-              track.id === id ? { ...track, gainDb } : track
-            )
-          }));
-
-          const nativeId = selectedSong.tracks.find((track) => track.id === id)?.media?.id ?? id;
-          if (audio.tracks.some((track) => track.id === nativeId)) {
+          const track = selectedSong.tracks.find((item) => item.id === id);
+          if (!track) return reject("Track not found in the selected item.");
+          const nativeId = track.media?.id;
+          if (nativeId && audio.tracks.some((item) => item.id === nativeId)) {
             await audio.setTrackGain(nativeId, gainDb);
           }
+
+          setSelectedSong((song) => ({
+            ...song,
+            tracks: song.tracks.map((item) =>
+              item.id === id ? { ...item, gainDb } : item
+            )
+          }));
           return ok();
         }
 
@@ -590,17 +592,19 @@ export function App() {
           const id = String(message.payload?.id ?? "");
           const muted = Boolean(message.payload?.muted);
 
-          setSelectedSong((song) => ({
-            ...song,
-            tracks: song.tracks.map((track) =>
-              track.id === id ? { ...track, muted } : track
-            )
-          }));
-
-          const nativeId = selectedSong.tracks.find((track) => track.id === id)?.media?.id ?? id;
-          if (audio.tracks.some((track) => track.id === nativeId)) {
+          const track = selectedSong.tracks.find((item) => item.id === id);
+          if (!track) return reject("Track not found in the selected item.");
+          const nativeId = track.media?.id;
+          if (nativeId && audio.tracks.some((item) => item.id === nativeId)) {
             await audio.setTrackMuted(nativeId, muted);
           }
+
+          setSelectedSong((song) => ({
+            ...song,
+            tracks: song.tracks.map((item) =>
+              item.id === id ? { ...item, muted } : item
+            )
+          }));
           return ok();
         }
 
@@ -608,17 +612,19 @@ export function App() {
           const id = String(message.payload?.id ?? "");
           const solo = Boolean(message.payload?.solo);
 
-          setSelectedSong((song) => ({
-            ...song,
-            tracks: song.tracks.map((track) =>
-              track.id === id ? { ...track, solo } : track
-            )
-          }));
-
-          const nativeId = selectedSong.tracks.find((track) => track.id === id)?.media?.id ?? id;
-          if (audio.tracks.some((track) => track.id === nativeId)) {
+          const track = selectedSong.tracks.find((item) => item.id === id);
+          if (!track) return reject("Track not found in the selected item.");
+          const nativeId = track.media?.id;
+          if (nativeId && audio.tracks.some((item) => item.id === nativeId)) {
             await audio.setTrackSolo(nativeId, solo);
           }
+
+          setSelectedSong((song) => ({
+            ...song,
+            tracks: song.tracks.map((item) =>
+              item.id === id ? { ...item, solo } : item
+            )
+          }));
           return ok();
         }
 
