@@ -78,7 +78,7 @@ describe("buildRemoteStudioState", () => {
     });
 
     expect(state.pads).toHaveLength(1);
-    expect(state.pads[0]).toMatchObject({ id: "pad-prayer", name: "Prayer Atmosphere", active: true });
+    expect(state.pads[0]).toMatchObject({ id: "pad-prayer", name: "Prayer Atmosphere", active: true, ready: true, mode: "latch" });
   });
 
   it("does not claim MIDI or lighting are live before those runtimes exist", () => {
