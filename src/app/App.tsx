@@ -264,14 +264,24 @@ export function App() {
   useEffect(() => {
     const bus = lumaVizMediaRef.current ?? new LumaVizMediaBus();
     lumaVizMediaRef.current = bus;
+    const section = selectedSong.sections[currentSection];
     bus.publish({
       outputId:"program-1",
       program:project.video,
       positionSeconds:audio.status.positionSeconds ?? 0,
       playing:Boolean(audio.status.playing || previewPlaying),
-      sectionId:selectedSong.sections[currentSection]?.id
+      sectionId:section?.id,
+      sectionName:section?.name,
+      sectionIndex:section ? currentSection : undefined,
+      song:{
+        id:selectedSong.id,
+        name:selectedSong.title,
+        artist:selectedSong.artist,
+        durationSeconds:selectedSong.durationSeconds,
+        bpm:selectedSong.bpm
+      }
     });
-  }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong.sections, currentSection]);
+  }, [project.video, audio.status.positionSeconds, audio.status.playing, previewPlaying, selectedSong, currentSection]);
 
   useEffect(() => {
     void publishVideoOutputState({
