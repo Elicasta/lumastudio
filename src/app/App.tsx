@@ -122,6 +122,7 @@ export function App() {
   const audio = useAudioEngine();
   const lumarig = useLumaRig();
   const [remoteLightingBlackout, setRemoteLightingBlackout] = useState(false);
+  const [remoteLightingSceneId, setRemoteLightingSceneId] = useState<string | null>(null);
   const [playingPadIds, setPlayingPadIds] = useState<Set<string>>(() => new Set());
   const padSlots = useMemo(() => makePadSlots(project.pads), [project.pads]);
   const visiblePadSlots = useMemo(() => padSlots.slice(0, project.padCount ?? 12), [padSlots, project.padCount]);
@@ -696,6 +697,7 @@ export function App() {
           if (!sceneId) return reject("Lighting scene command requires a scene id.");
           const result = await lumarig.send({ type: "scene.fire", sceneId });
           if (!result.ok) return reject(result.error ?? "LumaRig scene command failed.");
+          setRemoteLightingSceneId(sceneId);
           return ok();
         }
 
@@ -738,10 +740,12 @@ export function App() {
         queuedSectionIndex: queuedManualSection,
         lightingConnected: lumarig.state === "connected",
         lightingBlackout: remoteLightingBlackout,
+        lightingSceneId: remoteLightingSceneId,
+        lightingXySupported: false,
         pads: visiblePadSlots,
         activePadIds: playingPadIds
       }),
-    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong, project.setlist, lumarig.state, remoteLightingBlackout, visiblePadSlots, playingPadIds]
+    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong, project.setlist, lumarig.state, remoteLightingBlackout, remoteLightingSceneId, visiblePadSlots, playingPadIds]
   );
 
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
@@ -753,11 +757,14 @@ export function App() {
     if (lastDispatchedSectionRef.current === key) return;
     lastDispatchedSectionRef.current = key;
     const cue = sectionCueDispatch(selectedSong, section);
+    if (!cue.lightingCue) setRemoteLightingSceneId(null);
     void dispatchSectionCue(cue, {
       video: project.video,
       sendMidiPatch,
       midiConnected: Boolean(project.midi?.outputName),
       sendLumaRig: lumarig.state === "connected" ? (command) => lumarig.send(command) : undefined
+    }).then((result) => {
+      if (cue.lightingCue && result.lighting) setRemoteLightingSceneId(cue.lightingCue);
     });
   }, [selectedSong, currentSection, project.video, lumarig.state, lumarig.send]);
 
