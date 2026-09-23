@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { loopbackLumaRigPeer } from "../lumarig/discovery";
 import { LumaRigClient, type LumaRigConnectionState } from "../lumarig/client";
 import type { LumaRigCommand, LumaRigPeer, LumaRigSongIdentity } from "../lumarig/protocol";
 
@@ -12,6 +13,7 @@ export function useLumaRig() {
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [lastMessageAt, setLastMessageAt] = useState<number | null>(null);
   const operation = useRef(0);
+  const autoConnectAllowed = useRef(true);
   const refresh = useCallback(() => {
     setState(clientRef.current!.state);
     setPeer(clientRef.current!.peer);
@@ -21,6 +23,7 @@ export function useLumaRig() {
   }, []);
 
   const connect = useCallback(async (target: LumaRigPeer) => {
+    autoConnectAllowed.current = true;
     const currentOperation = ++operation.current;
     setError("");
     setState("connecting");
@@ -34,6 +37,7 @@ export function useLumaRig() {
   }, [refresh]);
 
   const disconnect = useCallback(async () => {
+    autoConnectAllowed.current = false;
     ++operation.current;
     await clientRef.current!.disconnect();
     refresh();
@@ -49,7 +53,30 @@ export function useLumaRig() {
   const resolveSong = useCallback(async (identity: LumaRigSongIdentity, createIfMissing = true) =>
     send({ type: "song.resolve", ...identity, createIfMissing }), [send]);
 
-  useEffect(() => { const timer = window.setInterval(refresh, 250); return () => { window.clearInterval(timer); void clientRef.current?.disconnect(); }; }, [refresh]);
+  // Probe the loopback peer with backoff. A missing Rig is a normal independent-app state.
+  useEffect(() => {
+    let disposed = false;
+    let delay = 2000;
+    let retry: number;
+    const probe = async () => {
+      const client = clientRef.current!;
+      if (!disposed && autoConnectAllowed.current && client.state === "disconnected") {
+        try { await client.connect(loopbackLumaRigPeer()); delay = 2000; refresh(); }
+        catch (cause) {
+          if (disposed) return;
+          const message = cause instanceof Error ? cause.message : String(cause);
+          if (/incompatible|rejected|protocol/i.test(message)) setError(message);
+          else { client.lastError = null; setError(""); }
+          delay = Math.min(30000, Math.round(delay * 1.8));
+          refresh();
+        }
+      }
+      if (!disposed) retry = window.setTimeout(probe, delay);
+    };
+    retry = window.setTimeout(probe, 500);
+    const status = window.setInterval(refresh, 250);
+    return () => { disposed = true; window.clearTimeout(retry); window.clearInterval(status); void clientRef.current?.disconnect(); };
+  }, [refresh]);
 
   return { state, peer, error, latencyMs, lastMessageAt, connect, disconnect, send, resolveSong };
 }
