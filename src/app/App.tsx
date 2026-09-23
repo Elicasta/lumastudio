@@ -120,6 +120,8 @@ export function App() {
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const selectingSongRef = useRef(false);
   const audio = useAudioEngine();
+  const lumarig = useLumaRig();
+  const [remoteLightingBlackout, setRemoteLightingBlackout] = useState(false);
   recoverySnapshotRef.current = { ...project, setlist: { ...project.setlist, songs: project.setlist.songs.map(song => song.id === selectedSong.id ? selectedSong : song) } };
   useEffect(() => {
     if (pendingRecovery) return;
@@ -632,10 +634,27 @@ export function App() {
         case "pad.release":
           return reject("Pad audio runtime is not wired yet.");
 
-        case "lighting.blackout":
-        case "lighting.scene":
+        case "lighting.blackout": {
+          if (lumarig.state !== "connected") return reject("LumaRig is not connected.");
+          const enabled = message.payload?.enabled;
+          if (typeof enabled !== "boolean") return reject("Blackout command requires an enabled boolean.");
+          const result = await lumarig.send({ type: "blackout", enabled });
+          if (!result.ok) return reject(result.error ?? "LumaRig blackout command failed.");
+          setRemoteLightingBlackout(enabled);
+          return ok();
+        }
+
+        case "lighting.scene": {
+          if (lumarig.state !== "connected") return reject("LumaRig is not connected.");
+          const sceneId = String(message.payload?.sceneId ?? message.payload?.id ?? "").trim();
+          if (!sceneId) return reject("Lighting scene command requires a scene id.");
+          const result = await lumarig.send({ type: "scene.fire", sceneId });
+          if (!result.ok) return reject(result.error ?? "LumaRig scene command failed.");
+          return ok();
+        }
+
         case "lighting.xy":
-          return reject("Lighting runtime is not wired yet.");
+          return reject("Lighting XY control is not supported by the current LumaRig bridge.");
       }
     },
     [
@@ -654,7 +673,9 @@ export function App() {
       selectSetlistSong,
       selectedSong.id,
       selectedSong.sections,
-      project.setlist
+      project.setlist,
+      lumarig.state,
+      lumarig.send
     ]
   );
 
@@ -666,13 +687,14 @@ export function App() {
         currentSectionIndex: currentSection,
         previewPlaying,
         audioStatus: audio.status,
-        queuedSectionIndex: queuedManualSection
+        queuedSectionIndex: queuedManualSection,
+        lightingConnected: lumarig.state === "connected",
+        lightingBlackout: remoteLightingBlackout
       }),
-    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong, project.setlist]
+    [audio.status, currentSection, previewPlaying, queuedManualSection, selectedSong, project.setlist, lumarig.state, remoteLightingBlackout]
   );
 
   const remote = useRemoteRelay(remoteState, handleRemoteCommand);
-  const lumarig = useLumaRig();
 
   useEffect(() => {
     const section = selectedSong.sections[currentSection];
