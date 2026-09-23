@@ -61,6 +61,7 @@ import { loopbackLumaRigPeer } from "../lumarig/discovery";
 import type { RemoteCommandEnvelope } from "../remote/protocol";
 import { buildRemoteStudioState } from "../remote/state";
 import { checkForAppUpdate } from "../services/updater";
+import { RemoteTransitionGate } from "../services/remoteTransitionGate";
 import { useAudioEngine, type AudioEngineController } from "../hooks/useAudioEngine";
 import type { NativeAudioStatus, NativeAudioTrack } from "../services/audio";
 import { choosePadAudio, configureNativePad, loadNativePad, releaseNativePad, stopNativePad, triggerNativePad, type PadSlot } from "../services/pads";
@@ -117,7 +118,7 @@ export function App() {
   const [importOpen, setImportOpen] = useState(false);
   const [currentSection, setCurrentSection] = useState(0);
   const currentSectionRef = useRef(0);
-  const remoteSectionTransitionRef = useRef(false);
+  const remoteSectionTransitionRef = useRef(new RemoteTransitionGate());
   const [liveLayout, setLiveLayout] = useState<"session"|"performance">("session");
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const selectingSongRef = useRef(false);
@@ -392,7 +393,7 @@ export function App() {
 
     if (audio.status.transitionActive) {
       await audio.cancelTransition();
-      remoteSectionTransitionRef.current = false;
+      remoteSectionTransitionRef.current.release();
       setQueuedManualSection(null);
       return;
     }
@@ -413,7 +414,7 @@ export function App() {
       await audio.stop();
     }
     setPreviewPlaying(false);
-    remoteSectionTransitionRef.current = false;
+    remoteSectionTransitionRef.current.release();
     setQueuedManualSection(null);
     currentSectionRef.current = 0;
     setCurrentSection(0);
@@ -499,7 +500,7 @@ export function App() {
     currentSectionRef.current = index;
     setCurrentSection((current) => (current === index ? current : index));
     setQueuedManualSection((queued) => (queued === index ? null : queued));
-    remoteSectionTransitionRef.current = false;
+    remoteSectionTransitionRef.current.release();
   }, [
     audio.hasLoadedAudio,
     audio.status.transitionActive,
@@ -542,39 +543,37 @@ export function App() {
 
         case "transport.pause":
           await pausePlayback();
-          remoteSectionTransitionRef.current = false;
+          remoteSectionTransitionRef.current.release();
           return ok();
 
         case "transport.stop":
           await stopPlayback();
-          remoteSectionTransitionRef.current = false;
+          remoteSectionTransitionRef.current.release();
           return ok();
 
         case "transport.go":
         case "transport.next": {
-          if (remoteSectionTransitionRef.current) return reject("A section transition is already in progress.");
-          remoteSectionTransitionRef.current = true;
+          if (!remoteSectionTransitionRef.current.tryBegin()) return reject("A section transition is already in progress.");
           try {
             const pending = await launchSection(
               Math.min(selectedSong.sections.length - 1, currentSectionRef.current + 1)
             );
-            if (!pending) remoteSectionTransitionRef.current = false;
+            if (!pending) remoteSectionTransitionRef.current.release();
             return ok();
           } catch (error) {
-            remoteSectionTransitionRef.current = false;
+            remoteSectionTransitionRef.current.release();
             throw error;
           }
         }
 
         case "transport.previous": {
-          if (remoteSectionTransitionRef.current) return reject("A section transition is already in progress.");
-          remoteSectionTransitionRef.current = true;
+          if (!remoteSectionTransitionRef.current.tryBegin()) return reject("A section transition is already in progress.");
           try {
             const pending = await launchSection(Math.max(0, currentSectionRef.current - 1));
-            if (!pending) remoteSectionTransitionRef.current = false;
+            if (!pending) remoteSectionTransitionRef.current.release();
             return ok();
           } catch (error) {
-            remoteSectionTransitionRef.current = false;
+            remoteSectionTransitionRef.current.release();
             throw error;
           }
         }
@@ -583,14 +582,13 @@ export function App() {
           const id = String(message.payload?.id ?? "");
           const index = selectedSong.sections.findIndex((section) => section.id === id);
           if (index < 0) return reject("Section not found in the current Song.");
-          if (remoteSectionTransitionRef.current) return reject("A section transition is already in progress.");
-          remoteSectionTransitionRef.current = true;
+          if (!remoteSectionTransitionRef.current.tryBegin()) return reject("A section transition is already in progress.");
           try {
             const pending = await launchSection(index);
-            if (!pending) remoteSectionTransitionRef.current = false;
+            if (!pending) remoteSectionTransitionRef.current.release();
             return ok();
           } catch (error) {
-            remoteSectionTransitionRef.current = false;
+            remoteSectionTransitionRef.current.release();
             throw error;
           }
         }
