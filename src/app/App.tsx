@@ -926,6 +926,7 @@ export function App() {
                   onRemoveItem={removeItem}
                   onNewService={newService}
                   onOpenProject={openStudioProject}
+                  onSaveProject={() => void saveCurrentProject()}
                   error={projectError || audio.error || ""}
                   mediaCheck={mediaCheck}
                   onCheckMedia={() => void checkMedia()}
@@ -1245,6 +1246,7 @@ function SetlistPage({
   onRemoveItem,
   onNewService,
   onOpenProject,
+  onSaveProject,
   error,
   mediaCheck,
   onCheckMedia,
@@ -1264,6 +1266,7 @@ function SetlistPage({
   onRemoveItem: (id: string) => Promise<boolean>;
   onNewService: () => void | Promise<void>;
   onOpenProject: () => void | Promise<void>;
+  onSaveProject: () => void;
   error: string;
   mediaCheck: { missing: string[]; checked: number; error?: string } | null;
   onCheckMedia: () => void;
@@ -1286,7 +1289,7 @@ function SetlistPage({
   const transportState = busy ? "COUNT / TRANSITION" : playing ? "PLAYING" : audio.hasLoadedAudio ? "STOPPED · AUDIO LOADED" : "SELECTED · NO AUDIO LOADED";
   const select = async (song: Song) => { setSelecting(true); try { await onSelect(song); } finally { setSelecting(false); } };
   return <section className="service-desk">
-    <header className="service-heading"><div><small>SERVICE / SHOW</small>{editingServiceName ? <form className="service-rename" onSubmit={event => { event.preventDefault(); if (onRenameService(serviceNameDraft)) setEditingServiceName(false); }}><input aria-label="Service name" value={serviceNameDraft} onChange={event => setServiceNameDraft(event.target.value)} autoFocus maxLength={100}/><button type="submit" disabled={!serviceNameDraft.trim()||playing||busy}>Save name</button><button type="button" onClick={() => setEditingServiceName(false)}>Cancel</button></form> : <div className="service-title"><h1>{setlist.name}</h1><button aria-label="Rename service" disabled={playing||busy} onClick={() => { setServiceNameDraft(setlist.name); setEditingServiceName(true); }}>Rename</button></div>}<p>Select an item to load its audio. Playback starts only when you press Play.</p></div><div className="service-actions"><button onClick={() => void onNewService()}>New Service</button><button onClick={() => void onOpenProject()}>Open</button><button className="primary" disabled={!setlist.songs.length} onClick={onImport}><Plus size={16}/> Import audio</button></div></header>
+    <header className="service-heading"><div><small>SERVICE / SHOW</small>{editingServiceName ? <form className="service-rename" onSubmit={event => { event.preventDefault(); if (onRenameService(serviceNameDraft)) setEditingServiceName(false); }}><input aria-label="Service name" value={serviceNameDraft} onChange={event => setServiceNameDraft(event.target.value)} autoFocus maxLength={100}/><button type="submit" disabled={!serviceNameDraft.trim()||playing||busy}>Save name</button><button type="button" onClick={() => setEditingServiceName(false)}>Cancel</button></form> : <div className="service-title"><h1>{setlist.name}</h1><button aria-label="Rename service" disabled={playing||busy} onClick={() => { setServiceNameDraft(setlist.name); setEditingServiceName(true); }}>Rename</button></div>}<p>Select an item to load its audio. Playback starts only when you press Play.</p></div><div className="service-actions"><button onClick={() => void onNewService()}>New Service</button><button onClick={() => void onOpenProject()}>Open</button><button onClick={onSaveProject}>Save</button><button className="primary" disabled={!setlist.songs.length} onClick={onImport}><Plus size={16}/> Import audio</button></div></header>
     {error && <p role="alert" className="service-error">{error}</p>}
     <div className="service-columns">
       <div className="panel service-order"><header><h2>Running order</h2><span>{setlist.songs.length} items · {fmt(setlist.songs.reduce((sum,song)=>sum+song.durationSeconds,0))}</span></header>
