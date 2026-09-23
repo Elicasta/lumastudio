@@ -1,4 +1,4 @@
-import { commandEnvelope, LUMARIG_BRIDGE_PROTOCOL, type LumaRigCommand, type LumaRigCommandResult, type LumaRigPeer } from "./protocol";
+import { commandEnvelope, isLumaRigRuntimeStatus, LUMARIG_BRIDGE_PROTOCOL, type LumaRigCommand, type LumaRigCommandResult, type LumaRigPeer, type LumaRigRuntimeStatus } from "./protocol";
 
 export type LumaRigConnectionState = "disconnected" | "connecting" | "connected" | "degraded";
 
@@ -12,6 +12,7 @@ export class LumaRigClient {
   lastError: string | null = null;
   lastMessageAt: number | null = null;
   latencyMs: number | null = null;
+  runtimeStatus: LumaRigRuntimeStatus | null = null;
 
   async connect(peer: LumaRigPeer) {
     // Invalidate synchronously. Awaiting disconnect here lets concurrent connects
@@ -59,8 +60,10 @@ export class LumaRigClient {
       const hello = await this.send({ type: "hello", protocol: LUMARIG_BRIDGE_PROTOCOL, clientName: "LumaStudio" });
       if (!current()) throw new Error("LumaRig connection superseded.");
       if (!hello.ok) throw new Error(hello.error ?? "LumaRig rejected Studio.");
-      const payload = hello.payload as { protocol?: number; app?: string } | undefined;
+      const payload = hello.payload as { protocol?: number; app?: string; status?: unknown } | undefined;
       if (payload?.protocol !== LUMARIG_BRIDGE_PROTOCOL || payload?.app !== "LumaRig") throw new Error("LumaRig handshake returned an incompatible identity or protocol.");
+      if (payload.status !== undefined && !isLumaRigRuntimeStatus(payload.status)) throw new Error("LumaRig handshake returned invalid runtime status.");
+      this.runtimeStatus = payload.status && isLumaRigRuntimeStatus(payload.status) ? payload.status : null;
       this.latencyMs = Date.now() - started;
       this.state = "connected"; this.peer = peer;
     } catch (error) {
@@ -81,6 +84,7 @@ export class LumaRigClient {
     const socket = this.socket;
     this.socket = null; this.peer = null; this.state = "disconnected";
     this.latencyMs = null;
+    this.runtimeStatus = null;
     socket?.close();
   }
 
