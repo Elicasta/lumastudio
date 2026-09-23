@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createServiceSong, selectedServiceSong } from "./service";
+import { createServiceSong, reflowSongSections, selectedServiceSong } from "./service";
 
 describe("service creation", () => {
   it("creates independent items without fabricated audio or cue assignments", () => {
@@ -15,5 +15,16 @@ describe("service creation", () => {
   it("returns no selected item for an empty service", () => {
     expect(selectedServiceSong([], "missing")).toBeUndefined();
     expect(() => createServiceSong("   ")).toThrow("Enter a title");
+  });
+  it("moves later sections and guide cues together when bars change", () => {
+    const song = createServiceSong("Song");
+    const first = song.sections[0];
+    const second = { ...first, id: crypto.randomUUID(), name: "Verse", startBar: 9 };
+    song.sections.push(second);
+    song.guideMarkers = [{ id: "cue", bar: 10, beat: 1, token: "direction.build" }];
+    const edited = reflowSongSections(song, [{ ...first, lengthBars: 12 }, second]);
+    expect(edited.sections[1].startBar).toBe(13);
+    expect(edited.guideMarkers[0].bar).toBe(14);
+    expect(() => reflowSongSections(song, [first, first])).toThrow("unique");
   });
 });

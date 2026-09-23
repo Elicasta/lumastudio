@@ -1,4 +1,4 @@
-import type { Song } from "./types";
+import type { Section, Song } from "./types";
 
 /** A new item contains no imaginary media, cues or imported metadata. */
 export function createServiceSong(title: string): Song {
@@ -22,4 +22,26 @@ export function createServiceSong(title: string): Song {
 /** Resolve the selected item without assuming that an empty show contains one. */
 export function selectedServiceSong(songs: Song[], id?: string): Song | undefined {
   return songs.find(song => song.id === id) ?? songs[0];
+}
+
+/** Keep the show timeline contiguous when an operator edits section lengths. */
+export function reflowSongSections(song: Song, sections: Section[]): Song {
+  if (!sections.length || sections.length > 128 || sections.some(section => !Number.isInteger(section.lengthBars) || section.lengthBars < 1 || section.lengthBars > 512))
+    throw new Error("A song needs 1 to 128 sections, each 1 to 512 bars long.");
+  const ids = new Set(sections.map(section => section.id));
+  if (ids.size !== sections.length) throw new Error("Section identities must be unique.");
+  let bar = 1;
+  const next = sections.map(section => {
+    const updated = { ...section, startBar: bar };
+    bar += section.lengthBars;
+    return updated;
+  });
+  const guideMarkers = song.guideMarkers.flatMap(marker => {
+    const owner = song.sections.find((section, index) => marker.bar >= section.startBar
+      && marker.bar < (song.sections[index + 1]?.startBar ?? Infinity));
+    if (!owner || !ids.has(owner.id)) return [];
+    const target = next.find(section => section.id === owner.id)!;
+    return [{ ...marker, bar: target.startBar + Math.min(marker.bar - owner.startBar, target.lengthBars - 1) }];
+  });
+  return { ...song, sections: next, guideMarkers };
 }

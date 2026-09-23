@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { SessionView } from "../components/SessionView";
 import { createProject } from "../domain/project";
-import { createServiceSong, selectedServiceSong } from "../domain/service";
+import { createServiceSong, reflowSongSections, selectedServiceSong } from "../domain/service";
 import { missingMedia, projectMediaPaths, type MediaFileStatus } from "../domain/preflight";
 import { isNativeApp } from "../services/audio";
 import { openProject, saveProject } from "../services/projectStore";
@@ -803,7 +803,7 @@ export function App() {
                 active={buildTool}
                 onSelect={setBuildTool}
               />
-              {buildTool === "arrangement" && <Arrangement song={selectedSong} audio={audio} onSongChange={setSelectedSong} onNativeLoaded={applyNativeTracks} onSave={() => void saveCurrentProject()} />}
+              {buildTool === "arrangement" && <Arrangement song={selectedSong} audio={audio} onSongChange={setSelectedSong} onNativeLoaded={applyNativeTracks} onSave={() => void saveCurrentProject()} referencedSectionIds={new Set(project.video?.clips.map(clip => clip.sectionId).filter((id): id is string => Boolean(id)) ?? [])} />}
               {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
               {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
               {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
@@ -1295,13 +1295,15 @@ function Arrangement({
   audio,
   onSongChange,
   onNativeLoaded,
-  onSave
+  onSave,
+  referencedSectionIds
 }: {
   song: Song;
   audio: AudioEngineController;
   onSongChange: (song: Song) => void;
   onNativeLoaded: (tracks: NativeAudioTrack[], status: NativeAudioStatus) => void;
   onSave: () => void;
+  referencedSectionIds: Set<string>;
 }) {
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState(song.title);
@@ -1316,9 +1318,27 @@ function Arrangement({
   const [nativeDropActive, setNativeDropActive] = useState(false);
   const selectedSection =
     song.sections[Math.min(selectedSectionIndex, song.sections.length - 1)];
+  const sectionEditingLocked = Boolean(audio.status.playing || audio.status.transitionActive || audio.status.countInActive);
   const totalBars = Math.max(
     ...song.sections.map((section) => section.startBar + section.lengthBars - 1)
   );
+  function addSection() {
+    if (sectionEditingLocked || song.sections.length >= 128) return;
+    const number = song.sections.length + 1;
+    const next = { id: crypto.randomUUID(), name: `Section ${number}`, startBar: totalBars + 1, lengthBars: 8, color: "#638db0" };
+    onSongChange(reflowSongSections(song, [...song.sections, next]));
+    setSelectedSectionIndex(number - 1);
+  }
+  function updateSection(patch: Partial<Song["sections"][number]>) {
+    if (sectionEditingLocked || !selectedSection) return;
+    onSongChange(reflowSongSections(song, song.sections.map(section => section.id === selectedSection.id ? { ...section, ...patch } : section)));
+  }
+  function removeSection() {
+    if (sectionEditingLocked || song.sections.length <= 1 || !selectedSection || referencedSectionIds.has(selectedSection.id)) return;
+    if (!window.confirm(`Remove ${selectedSection.name} and its section cues from this song?`)) return;
+    onSongChange(reflowSongSections(song, song.sections.filter(section => section.id !== selectedSection.id)));
+    setSelectedSectionIndex(Math.max(0, selectedSectionIndex - 1));
+  }
 
   async function importAudio(paths?: string[]) {
     const result = paths ? await audio.loadPaths(paths) : await audio.chooseAndLoad();
@@ -1680,6 +1700,7 @@ function Arrangement({
               </button>
             ))}
           </div>
+          <button type="button" onClick={addSection} disabled={sectionEditingLocked||song.sections.length>=128} title="Add a section after the current arrangement">+ Section</button>
         </div>
 
         {song.tracks.map((track, index) => {
@@ -1720,6 +1741,7 @@ function Arrangement({
 
       {selectedSection && (
         <div className="inspector panel">
+          <div className="section-structure-editor"><label>Section name<input aria-label="Section name" value={selectedSection.name} maxLength={64} disabled={sectionEditingLocked} onChange={event => updateSection({ name: event.target.value })}/></label><label>Bars<input aria-label="Section length in bars" type="number" min="1" max="512" value={selectedSection.lengthBars} disabled={sectionEditingLocked} onChange={event => { const lengthBars = Number(event.target.value); if (Number.isInteger(lengthBars) && lengthBars >= 1 && lengthBars <= 512) updateSection({ lengthBars }); }}/></label><button type="button" onClick={removeSection} disabled={sectionEditingLocked||song.sections.length<=1||referencedSectionIds.has(selectedSection.id)} title={referencedSectionIds.has(selectedSection.id)?"Remove linked video cues before deleting this section":"Remove selected section"}>Remove section</button></div>
           <div>
             <small>SECTION</small>
             <strong>{selectedSection.name}</strong>
