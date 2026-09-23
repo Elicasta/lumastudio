@@ -974,7 +974,7 @@ export function App() {
               />
               {buildTool === "arrangement" && <Arrangement song={selectedSong} audio={audio} onSongChange={setSelectedSong} onNativeLoaded={applyNativeTracks} onSave={() => void saveCurrentProject()} referencedSectionIds={new Set(project.video?.clips.map(clip => clip.sectionId).filter((id): id is string => Boolean(id)) ?? [])} />}
               {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
-              {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
+              {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} playing={playingPadIds} onPlayingChange={setPlayingPadIds} onStopAll={() => void stopAllPadVoices()} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
               {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
               {buildTool === "presentation" && (
                 <PresentationEditor
@@ -2340,10 +2340,9 @@ function makePadSlots(initialPads?: PadSlot[]): PadSlot[] {
   return defaults.map((slot, index) => initialPads?.[index] ? { ...slot, ...initialPads[index] } : slot);
 }
 
-function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlot[]; initialPadCount?: 12 | 16; onChange: (pads: PadSlot[], padCount: 12 | 16) => void }) {
+function Pads({ initialPads, initialPadCount, playing, onPlayingChange, onStopAll, onChange }: { initialPads?: PadSlot[]; initialPadCount?: 12 | 16; playing: ReadonlySet<string>; onPlayingChange: (playing: Set<string>) => void; onStopAll: () => void; onChange: (pads: PadSlot[], padCount: 12 | 16) => void }) {
   const [active, setActive] = useState(0);
   const [padCount, setPadCount] = useState<12 | 16>(initialPadCount ?? 12);
-  const [playing, setPlaying] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
   const [pads, setPads] = useState<PadSlot[]>(() => makePadSlots(initialPads));
   const pad = pads[active];
@@ -2351,8 +2350,6 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
   const onChangeRef = useRef(onChange);
   useEffect(() => { onChangeRef.current = onChange; }, [onChange]);
   useEffect(() => { onChangeRef.current(pads, padCount); }, [pads, padCount]);
-
-  useEffect(() => () => { for (let index = 0; index < 16; index += 1) void stopNativePad(index); }, []);
 
   function updatePad(update: Partial<PadSlot>) {
     setPads((current) => current.map((item, index) => index === active ? { ...item, ...update } : item));
@@ -2379,12 +2376,14 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
       if (!slot.path) throw new Error("Load audio into this pad first.");
       if (slot.mode === "latch" && playing.has(slot.id)) {
         await releaseNativePad(index);
-        setPlaying((current) => { const next = new Set(current); next.delete(slot.id); return next; });
+        const next = new Set(playing);
+        next.delete(slot.id);
+        onPlayingChange(next);
         return;
       }
       await loadNativePad(index, slot);
       await triggerNativePad(index);
-      setPlaying((current) => new Set(current).add(slot.id));
+      if (slot.mode !== "one-shot") onPlayingChange(new Set(playing).add(slot.id));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     }
@@ -2393,7 +2392,9 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
   function liftPad(slot: PadSlot, index: number) {
     if (slot.mode !== "hold") return;
     void releaseNativePad(index);
-    setPlaying((current) => { const next = new Set(current); next.delete(slot.id); return next; });
+    const next = new Set(playing);
+    next.delete(slot.id);
+    onPlayingChange(next);
   }
 
 
@@ -2406,7 +2407,7 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
         </div>
         <div className="head-actions">
           <div className="segmented"><button className={padCount === 12 ? "active" : ""} onClick={() => setPadCount(12)}>12 Pads</button><button className={padCount === 16 ? "active" : ""} onClick={() => setPadCount(16)}>16 Pads</button></div>
-          <button onClick={() => { for (let index = 0; index < 16; index += 1) void stopNativePad(index); setPlaying(new Set()); }}>Stop All</button>
+          <button onClick={onStopAll}>Stop All</button>
         </div>
       </div>
 
