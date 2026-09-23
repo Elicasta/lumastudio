@@ -82,7 +82,7 @@ const buildNav: Array<{ tool: BuildTool; label: string; icon: typeof Music2 }> =
   { tool: "lighting", label: "Lighting", icon: Lightbulb },
   { tool: "presentation", label: "Presentation", icon: Radio },
   { tool: "midi", label: "MIDI", icon: Radio },
-  { tool: "video", label: "Video / NDI", icon: Clapperboard }
+  { tool: "video", label: "Video", icon: Clapperboard }
 ];
 
 const showNav: Array<{ tool: ShowTool; label: string; icon: typeof Music2 }> = [
@@ -951,7 +951,7 @@ function VideoEditor({ program, sections, positionSeconds, playing, sectionId, o
   }
 
   return <section className="video-editor">
-    <div className="page-head"><div><h1>Video / NDI</h1><p>Timeline video, section cues and program output</p></div><button className="primary" onClick={() => void addLocal()}>Add MP4 / MOV</button></div>
+    <div className="page-head"><div><h1>Video</h1><p>Timeline clips, section cues and local output window</p></div><button className="primary" onClick={() => void addLocal()}>Add MP4 / MOV</button></div>
     {error && <div className="error-banner">{error}</div>}
     <div className="panel video-source-add"><input value={youtubeUrl} onChange={(e) => setYoutubeUrl(e.currentTarget.value)} placeholder="Paste YouTube link" /><button onClick={addYouTube}>Add YouTube</button></div>
     <div className="video-editor-grid">
@@ -971,13 +971,13 @@ function VideoEditor({ program, sections, positionSeconds, playing, sectionId, o
     </div>
     <div className="panel video-program-controls">
       {(["live","black","clear","freeze"] as VideoProgramState[]).map((state) => <button key={state} className={(value.state ?? "live") === state ? "active" : ""} onClick={() => onChange({...value,state})}>{state.toUpperCase()}</button>)}
-      <button onClick={() => void openVideoOutput()}>Open Output</button>
-      <button onClick={() => void fullscreenVideoOutput(true)}>Fullscreen</button>
+      <button onClick={() => void openVideoOutput().catch(cause => setError(String(cause)))}>Open Output</button>
+      <button onClick={() => void fullscreenVideoOutput(true).catch(cause => setError(String(cause)))}>Fullscreen</button>
     </div>
-    <div className="panel video-output"><h2>Program Output</h2>
-      <label><input type="checkbox" checked={value.output.displayEnabled} onChange={(e)=>onChange({...value,output:{...value.output,displayEnabled:e.currentTarget.checked}})}/> External Display</label>
-      <label><input type="checkbox" checked={value.output.ndiEnabled} onChange={(e)=>onChange({...value,output:{...value.output,ndiEnabled:e.currentTarget.checked}})}/> NDI</label>
-      <input value={value.output.ndiName} onChange={(e)=>onChange({...value,output:{...value.output,ndiName:e.currentTarget.value}})} aria-label="NDI source name"/>
+    <div className="panel video-output"><h2>Output routing</h2>
+      <p>Open Output launches a local program window. Place that window on the intended display and verify the picture at the destination.</p>
+      <p>NDI publishing and automatic display routing are unavailable in this build.</p>
+      {value.output.ndiEnabled && <p className="audio-error">This project requests NDI, but no NDI sender is active.</p>}
     </div>
   </section>;
 }
