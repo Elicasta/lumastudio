@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { loopbackLumaRigPeer } from "../lumarig/discovery";
 import { LumaRigClient, type LumaRigConnectionState } from "../lumarig/client";
-import type { LumaRigCommand, LumaRigPeer, LumaRigSongIdentity } from "../lumarig/protocol";
+import { isLumaRigRuntimeStatus, type LumaRigCommand, type LumaRigPeer, type LumaRigRuntimeStatus, type LumaRigSongIdentity } from "../lumarig/protocol";
 
 export function useLumaRig() {
   const clientRef = useRef<LumaRigClient | null>(null);
@@ -13,6 +13,8 @@ export function useLumaRig() {
 
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [lastMessageAt, setLastMessageAt] = useState<number | null>(null);
+  const [runtimeStatus, setRuntimeStatus] = useState<LumaRigRuntimeStatus | null>(null);
+  const statusPollBusy = useRef(false);
   const operation = useRef(0);
   const autoConnectAllowed = useRef(true);
   const refresh = useCallback(() => {
@@ -20,6 +22,7 @@ export function useLumaRig() {
     setPeer(clientRef.current!.peer);
     setLatencyMs(clientRef.current!.latencyMs);
     setLastMessageAt(clientRef.current!.lastMessageAt);
+    setRuntimeStatus(clientRef.current!.runtimeStatus);
     if (clientRef.current!.lastError) setError(clientRef.current!.lastError);
   }, []);
 
@@ -47,6 +50,9 @@ export function useLumaRig() {
 
   const send = useCallback(async (command: LumaRigCommand) => {
     const result = await clientRef.current!.send(command);
+    if (command.type === "status.get" && result.ok && isLumaRigRuntimeStatus(result.payload)) {
+      clientRef.current!.runtimeStatus = result.payload;
+    }
     refresh();
     if (!result.ok) setError(result.error ?? "LumaRig command failed.");
     return result;
@@ -62,6 +68,10 @@ export function useLumaRig() {
     let retry: number;
     const probe = async () => {
       const client = clientRef.current!;
+      if (!disposed && autoConnectAllowed.current && client.state === "degraded") {
+        await client.disconnect();
+        refresh();
+      }
       if (!disposed && autoConnectAllowed.current && client.state === "disconnected") {
         try { await client.connect(loopbackLumaRigPeer()); delay = 2000; setConnectionEpoch((value) => value + 1); refresh(); }
         catch (cause) {
@@ -80,5 +90,33 @@ export function useLumaRig() {
     return () => { disposed = true; window.clearTimeout(retry); window.clearInterval(status); void clientRef.current?.disconnect(); };
   }, [refresh]);
 
-  return { state, connectionEpoch, peer, error, latencyMs, lastMessageAt, connect, disconnect, send, resolveSong };
+  useEffect(() => {
+    if (state !== "connected") {
+      setRuntimeStatus(null);
+      return;
+    }
+    let disposed = false;
+    const poll = async () => {
+      if (disposed || statusPollBusy.current) return;
+      statusPollBusy.current = true;
+      try {
+        const result = await clientRef.current!.send({ type: "status.get" });
+        if (result.ok && isLumaRigRuntimeStatus(result.payload)) {
+          clientRef.current!.runtimeStatus = result.payload;
+          setRuntimeStatus(result.payload);
+        } else if (!result.ok) {
+          refresh();
+        }
+      } catch {
+        refresh();
+      } finally {
+        statusPollBusy.current = false;
+      }
+    };
+    void poll();
+    const timer = window.setInterval(() => void poll(), 750);
+    return () => { disposed = true; window.clearInterval(timer); };
+  }, [state, connectionEpoch, refresh]);
+
+  return { state, connectionEpoch, peer, error, latencyMs, lastMessageAt, runtimeStatus, connect, disconnect, send, resolveSong };
 }
