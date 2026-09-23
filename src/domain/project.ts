@@ -65,7 +65,24 @@ export function parseProject(raw: string): StudioProject {
     ids.add(song.id);
   }
   if (value.video && !Array.isArray(value.video.clips)) throw new Error("Invalid LumaStudio project: video collection is incomplete.");
-  if (value.pads && !Array.isArray(value.pads)) throw new Error("Invalid LumaStudio project: pad collection is incomplete.");
+  if (value.padCount !== undefined && value.padCount !== 12 && value.padCount !== 16) throw new Error("Invalid LumaStudio project: pad count is unsupported.");
+  if (value.pads !== undefined) {
+    if (!Array.isArray(value.pads) || value.pads.length > 16) throw new Error("Invalid LumaStudio project: pad collection is incomplete.");
+    const padIds = new Set<string>();
+    for (const pad of value.pads) {
+      if (!pad || typeof pad.id !== "string" || !pad.id || padIds.has(pad.id)
+        || typeof pad.name !== "string" || !pad.name
+        || !["one-shot", "loop", "hold", "latch"].includes(pad.mode)
+        || (pad.path !== undefined && typeof pad.path !== "string")
+        || !Number.isFinite(pad.gainDb) || !Number.isFinite(pad.octave)
+        || !Number.isFinite(pad.width) || pad.width < 0 || pad.width > 100
+        || !Number.isFinite(pad.attackMs) || pad.attackMs < 0
+        || !Number.isFinite(pad.releaseMs) || pad.releaseMs < 0) {
+        throw new Error("Invalid LumaStudio project: a pad is incomplete, duplicated, or unsafe.");
+      }
+      padIds.add(pad.id);
+    }
+  }
   return {
     ...value,
     selectedSongId: ids.has(value.selectedSongId ?? "") ? value.selectedSongId : value.setlist.songs[0]?.id,
