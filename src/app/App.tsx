@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { invoke } from "@tauri-apps/api/core";
 import {
   Activity,
   AudioLines,
@@ -23,8 +24,10 @@ import {
   WandSparkles
 } from "lucide-react";
 import { SessionView } from "../components/SessionView";
-import { demoSetlist, goodness } from "../domain/demo";
 import { createProject } from "../domain/project";
+import { createServiceSong, selectedServiceSong } from "../domain/service";
+import { missingMedia, projectMediaPaths, type MediaFileStatus } from "../domain/preflight";
+import { isNativeApp } from "../services/audio";
 import { openProject, saveProject } from "../services/projectStore";
 import { chooseLocalVideo, createYouTubeClip } from "../services/video";
 import type { VideoClip, VideoProgram, VideoProgramState } from "../domain/video";
@@ -100,9 +103,11 @@ export function App() {
   const [page, setPage] = useState<Page>("show");
   const [buildTool, setBuildTool] = useState<BuildTool>("arrangement");
   const [showTool, setShowTool] = useState<ShowTool>("setlist");
-  const [project, setProject] = useState(() => createProject("Sunday Set", demoSetlist.songs));
+  const [project, setProject] = useState(() => createProject("New Service"));
   const [projectPath, setProjectPath] = useState<string | undefined>();
-  const [selectedSong, setSelectedSong] = useState<Song>(goodness);
+  const [selectedSong, setSelectedSong] = useState<Song>(() => createServiceSong("Untitled item"));
+  const [projectError, setProjectError] = useState("");
+  const [mediaCheck, setMediaCheck] = useState<{ missing: string[]; checked: number; error?: string } | null>(null);
   const [previewPlaying, setPreviewPlaying] = useState(false);
   const lumaVizMediaRef = useRef<LumaVizMediaBus>();
   const [importOpen, setImportOpen] = useState(false);
@@ -110,6 +115,15 @@ export function App() {
   const [liveLayout, setLiveLayout] = useState<"session"|"performance">("session");
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const audio = useAudioEngine();
+  const mediaPaths = useMemo(() => projectMediaPaths(project), [project]);
+  const checkMedia = useCallback(async () => {
+    if (!isNativeApp()) { setMediaCheck({missing: [], checked: 0, error: "File preflight is available in the desktop app."}); return; }
+    try {
+      const files = await invoke<MediaFileStatus[]>("project_media_status", { paths: mediaPaths });
+      setMediaCheck({ missing: missingMedia(mediaPaths, files), checked: mediaPaths.length });
+    } catch (error) { setMediaCheck({missing: [], checked: 0, error: `File preflight failed: ${String(error)}`}); }
+  }, [mediaPaths]);
+  useEffect(() => { if (page === "show") void checkMedia(); }, [page, checkMedia]);
   const integrationSettings = project.integrations ?? defaultIntegrationSettings();
   const proPresenter = useProPresenter(integrationSettings.propresenter, selectedSong, currentSection);
   const lastDispatchedSectionRef = useRef<string | null>(null);
@@ -259,19 +273,19 @@ export function App() {
         await audio.stop();
       }
       const songMedia = nativeTracksForSong(song);
-      await audio.loadTracks(songMedia);
+      if ((songMedia.length || audio.hasLoadedAudio) && !await audio.loadTracks(songMedia)) return false;
       setPreviewPlaying(false);
       setQueuedManualSection(null);
       setSelectedSong(song);
       setProject((current) => ({ ...current, selectedSongId: song.id, updatedAt: new Date().toISOString() }));
       setCurrentSection(0);
+      return true;
     },
     [audio.hasLoadedAudio, audio.stop, audio.loadTracks]
   );
 
   const startPlayback = useCallback(async () => {
     if (!audio.hasLoadedAudio) {
-      setPreviewPlaying(true);
       return;
     }
 
@@ -472,6 +486,7 @@ export function App() {
 
       switch (message.command) {
         case "transport.play":
+          if (!audio.hasLoadedAudio) return reject("No audio is loaded for the selected item.");
           await startPlayback();
           return ok();
 
@@ -515,16 +530,14 @@ export function App() {
               direction === 1 ? "End of Setlist." : "Start of Setlist."
             );
           }
-          await selectSetlistSong(song);
-          return ok();
+          return await selectSetlistSong(song) ? ok() : reject("The next item's audio could not be loaded. The current item is unchanged.");
         }
 
         case "song.select": {
           const id = String(message.payload?.id ?? "");
           const song = project.setlist.songs.find((item) => item.id === id);
           if (!song) return reject("Song not found in the active Setlist.");
-          await selectSetlistSong(song);
-          return ok();
+          return await selectSetlistSong(song) ? ok() : reject("The selected item's audio could not be loaded. The current item is unchanged.");
         }
 
         case "mixer.gain": {
@@ -646,35 +659,63 @@ export function App() {
   useEffect(() => {
     setProject((current) => ({
       ...current,
-      selectedSongId: selectedSong.id,
-      updatedAt: new Date().toISOString(),
+      selectedSongId: current.setlist.songs.some(song => song.id === selectedSong.id) ? selectedSong.id : current.selectedSongId,
+      updatedAt: current.setlist.songs.some(song => song.id === selectedSong.id) ? new Date().toISOString() : current.updatedAt,
       setlist: {
         ...current.setlist,
-        songs: current.setlist.songs.some((song) => song.id === selectedSong.id)
-          ? current.setlist.songs.map((song) => song.id === selectedSong.id ? selectedSong : song)
-          : [...current.setlist.songs, selectedSong]
+        songs: current.setlist.songs.map((song) => song.id === selectedSong.id ? selectedSong : song)
       }
     }));
   }, [selectedSong]);
 
   async function saveCurrentProject(saveAs = false) {
-    const path = await saveProject(project, saveAs ? undefined : projectPath);
-    if (path) setProjectPath(path);
+    try {
+      const snapshot = { ...project, setlist: { ...project.setlist, songs: project.setlist.songs.map(song => song.id === selectedSong.id ? selectedSong : song) } };
+      const path = await saveProject(snapshot, saveAs ? undefined : projectPath);
+      if (path) { setProjectPath(path); setProjectError(""); }
+    } catch (error) { setProjectError(String(error)); }
   }
 
   async function openStudioProject() {
-    const opened = await openProject();
-    if (!opened) return;
-    setProject(opened.project);
-    setProjectPath(opened.path);
-    const song = opened.project.setlist.songs.find((item) => item.id === opened.project.selectedSongId)
-      ?? opened.project.setlist.songs[0];
-    if (song) {
-      await audio.loadTracks(nativeTracksForSong(song));
-      setSelectedSong(song);
+    try {
+      const opened = await openProject();
+      if (!opened) return;
+      const song = selectedServiceSong(opened.project.setlist.songs, opened.project.selectedSongId);
+      if (song || audio.hasLoadedAudio) {
+        const loaded = await audio.loadTracks(song ? nativeTracksForSong(song) : []);
+        if (!loaded) { setProjectError("Project was not opened: its audio could not be loaded. The current service is unchanged."); return; }
+      }
+      setProject(opened.project);
+      setProjectPath(opened.path);
+      setSelectedSong(song ?? createServiceSong("Untitled item"));
       setCurrentSection(0);
       setQueuedManualSection(null);
-    }
+      setPreviewPlaying(false);
+      setProjectError("");
+    } catch (error) { setProjectError(String(error)); }
+  }
+
+  async function newService() {
+    if ((project.setlist.songs.length || projectPath) && !window.confirm("Create a new service? Save your current service first if you need to keep recent changes.")) return;
+    if (audio.hasLoadedAudio && !await audio.loadTracks([])) { setProjectError("Cannot clear the current audio. The service was not changed."); return; }
+    const blank = createProject("New Service");
+    setProject(blank);
+    setProjectPath(undefined);
+    setSelectedSong(createServiceSong("Untitled item"));
+    setQueuedManualSection(null);
+    setCurrentSection(0);
+    setPreviewPlaying(false);
+    setProjectError("");
+    setShowTool("setlist"); setPage("show");
+  }
+
+  async function addServiceSong(title: string) {
+    if (audio.hasLoadedAudio && !await audio.loadTracks([])) { setProjectError("Cannot clear the previous item's audio. Item was not added."); return false; }
+    const song = createServiceSong(title);
+    setProject(current => ({ ...current, selectedSongId: song.id, setlist: { ...current.setlist, songs: [...current.setlist.songs, song] }, updatedAt: new Date().toISOString() }));
+    setSelectedSong(song); setCurrentSection(0); setQueuedManualSection(null);
+    setProjectError("");
+    return true;
   }
 
   function applyPlanningCenterImport(value: PlanningCenterPlanImport) {
@@ -733,7 +774,7 @@ export function App() {
     <div className="app-shell">
       <Sidebar page={page} onPage={setPage} />
       <main className="main">
-        <Transport
+        {project.setlist.songs.length > 0 && <Transport
           song={selectedSong}
           projectName={project.name}
           rigConnected={lumarig.state === "connected"}
@@ -744,9 +785,10 @@ export function App() {
           onStart={startPlayback}
           onPause={pausePlayback}
           onStop={stopPlayback}
-        />
+        />}
         <div className="workspace">
-          {page === "import" && (
+          {project.setlist.songs.length === 0 && page !== "show" && <section className="service-empty-workspace panel"><small>NEW SERVICE</small><h1>Build the running order first</h1><p>Add a song or service item in Show. Then import its audio and prepare the arrangement.</p><button className="primary" onClick={() => { setShowTool("setlist"); setPage("show"); }}>Open running order</button></section>}
+          {project.setlist.songs.length > 0 && page === "import" && (
             <Sources audio={audio} onLoaded={(tracks, status) => {
               applyNativeTracks(tracks, status);
               setBuildTool("arrangement");
@@ -754,14 +796,14 @@ export function App() {
             }} />
           )}
 
-          {page === "build" && (
+          {project.setlist.songs.length > 0 && page === "build" && (
             <>
               <ToolRail
                 items={buildNav}
                 active={buildTool}
                 onSelect={setBuildTool}
               />
-              {buildTool === "arrangement" && <Arrangement song={selectedSong} audio={audio} onSongChange={setSelectedSong} />}
+              {buildTool === "arrangement" && <Arrangement song={selectedSong} audio={audio} onSongChange={setSelectedSong} onNativeLoaded={applyNativeTracks} onSave={() => void saveCurrentProject()} />}
               {buildTool === "mixer" && <Mixer song={selectedSong} audio={audio} />}
               {buildTool === "pads" && <Pads initialPads={project.pads} initialPadCount={project.padCount} onChange={(pads, padCount) => setProject((current) => ({ ...current, pads, padCount, updatedAt: new Date().toISOString() }))} />}
               {buildTool === "lighting" && <Lighting song={selectedSong} lumarig={lumarig} />}
@@ -792,6 +834,12 @@ export function App() {
                   setlist={project.setlist}
                   audio={audio}
                   onSelect={selectSetlistSong}
+                  onAddSong={addServiceSong}
+                  onNewService={newService}
+                  onOpenProject={openStudioProject}
+                  error={projectError || audio.error || ""}
+                  mediaCheck={mediaCheck}
+                  onCheckMedia={() => void checkMedia()}
                   onOpenArrangement={() => { setBuildTool("arrangement"); setPage("build"); }}
                   onImport={() => setPage("import")}
                   onSongChange={setSelectedSong}
@@ -820,6 +868,8 @@ export function App() {
                   <div className="panel project-actions">
                     <strong>{project.name}</strong>
                     <span>{projectPath ?? "Unsaved Studio Project"}</span>
+                    {projectError && <p role="alert" className="service-error">{projectError}</p>}
+                    <button onClick={() => void newService()}>New Service</button>
                     <button onClick={() => void openStudioProject()}>Open Project</button>
                     <button onClick={() => void saveCurrentProject(false)}>Save Project</button>
                     <button onClick={() => void saveCurrentProject(true)}>Save As…</button>
@@ -829,7 +879,7 @@ export function App() {
             </>
           )}
 
-          {page === "live" && (<>
+          {project.setlist.songs.length > 0 && page === "live" && (<>
             <div className="live-layout-switch" role="group" aria-label="Live workspace"><button className={liveLayout==="session"?"active":""} onClick={()=>setLiveLayout("session")}>SESSION</button><button className={liveLayout==="performance"?"active":""} onClick={()=>setLiveLayout("performance")}>PERFORMANCE</button></div>
             {liveLayout === "session" ? <SessionView song={selectedSong} current={currentSection} queued={queuedManualSection} audio={audio} onLaunch={launchSection} onSongChange={setSelectedSong} onStop={stopPlayback}/> : <Performance
               song={selectedSong}
@@ -1099,6 +1149,12 @@ function SetlistPage({
   setlist,
   audio,
   onSelect,
+  onAddSong,
+  onNewService,
+  onOpenProject,
+  error,
+  mediaCheck,
+  onCheckMedia,
   onOpenArrangement,
   onImport,
   onSongChange,
@@ -1108,7 +1164,13 @@ function SetlistPage({
   selected: Song;
   setlist: Setlist;
   audio: AudioEngineController;
-  onSelect: (song: Song) => void | Promise<void>;
+  onSelect: (song: Song) => void | Promise<boolean | void>;
+  onAddSong: (title: string) => Promise<boolean>;
+  onNewService: () => void | Promise<void>;
+  onOpenProject: () => void | Promise<void>;
+  error: string;
+  mediaCheck: { missing: string[]; checked: number; error?: string } | null;
+  onCheckMedia: () => void;
   onOpenArrangement: () => void;
   onImport: () => void;
   onSongChange: (song: Song) => void;
@@ -1119,26 +1181,30 @@ function SetlistPage({
   const playing = Boolean(audio.status.playing);
   const busy = Boolean(audio.status.transitionActive || audio.status.countInActive);
   const [selecting, setSelecting] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
   const duration = audio.status.durationSeconds ?? 0;
   const position = audio.status.positionSeconds ?? 0;
   const progress = audio.hasLoadedAudio && duration > 0 ? Math.min(100, position / duration * 100) : 0;
   const transportState = busy ? "COUNT / TRANSITION" : playing ? "PLAYING" : audio.hasLoadedAudio ? "STOPPED · AUDIO LOADED" : "SELECTED · NO AUDIO LOADED";
   const select = async (song: Song) => { setSelecting(true); try { await onSelect(song); } finally { setSelecting(false); } };
   return <section className="service-desk">
-    <header className="service-heading"><div><small>SERVICE / SHOW</small><h1>Your running order</h1><p>Select an item to load its audio. Playback starts only when you press Play.</p></div><button className="primary" onClick={onImport}><Plus size={16}/> Import audio</button></header>
+    <header className="service-heading"><div><small>SERVICE / SHOW</small><h1>{setlist.name}</h1><p>Select an item to load its audio. Playback starts only when you press Play.</p></div><div className="service-actions"><button onClick={() => void onNewService()}>New Service</button><button onClick={() => void onOpenProject()}>Open</button><button className="primary" disabled={!setlist.songs.length} onClick={onImport}><Plus size={16}/> Import audio</button></div></header>
+    {error && <p role="alert" className="service-error">{error}</p>}
     <div className="service-columns">
       <div className="panel service-order"><header><h2>Running order</h2><span>{setlist.songs.length} items · {fmt(setlist.songs.reduce((sum,song)=>sum+song.durationSeconds,0))}</span></header>
+        <form className="service-add-item" onSubmit={event => { event.preventDefault(); if (!newTitle.trim() || selecting || playing || busy) return; setSelecting(true); void onAddSong(newTitle).then(added => { if (added) setNewTitle(""); }).finally(() => setSelecting(false)); }}><label htmlFor="service-new-item">Add a song or service item</label><div><input id="service-new-item" value={newTitle} onChange={event=>setNewTitle(event.target.value)} placeholder="e.g. Opening worship" disabled={selecting||playing||busy}/><button type="submit" disabled={!newTitle.trim()||selecting||playing||busy}>Add item</button></div></form>
+        {!setlist.songs.length && <div className="service-empty"><strong>Start with your first item</strong><p>Add an item above, then prepare its arrangement and import audio. The service starts empty.</p></div>}
         {setlist.songs.map((song,index)=><button key={song.id} className={"service-item "+(song.id===selected.id?"selected":"")} disabled={playing||busy||selecting} onClick={()=>void select(song)}><span className="order-number">{String(index+1).padStart(2,"0")}</span><span><strong>{song.title}</strong><small>{song.artist || "Untitled artist"} · {song.tracks.filter(t=>t.media?.path).length} audio files assigned</small></span><span>{song.bpm}<small>BPM</small></span><span>{song.key}<small>{song.meter.join("/")}</small></span><span className="item-state">{song.id===selected.id?"SELECTED":"LOAD"}</span></button>)}
         {(playing||busy)&&<p className="service-note">Pause playback before loading another item.</p>}
       </div>
-      <aside className="panel service-transport"><span className={"service-state "+(playing?"playing":"")}>{selecting?"LOADING ITEM":transportState}</span><h2>{selected.title}</h2><p>{selected.bpm} BPM · {selected.key} · {selected.meter.join("/")}</p>
+      <aside className="panel service-transport"><span className={"service-state "+(playing?"playing":"")}>{selecting?"LOADING ITEM":setlist.songs.length?transportState:"EMPTY SERVICE"}</span><h2>{setlist.songs.length?selected.title:"No item selected"}</h2><p>{setlist.songs.length?`${selected.bpm} BPM · ${selected.key} · ${selected.meter.join("/")}`:"Add an item to begin preparing your service."}</p>
         <div className="service-progress" role="progressbar" aria-label="Audio position" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><i style={{width:progress+"%"}}/></div><div className="service-times"><span>{fmtClock(position)}</span><span>{fmtClock(duration)}</span></div>
-        <button className="service-play" disabled={!audio.hasLoadedAudio||selecting} onClick={()=>void(playing||busy?onPause():onStart())}>{playing||busy?"PAUSE / CANCEL":"PLAY LOADED AUDIO"}</button>
+        <button className="service-play" disabled={!setlist.songs.length||!audio.hasLoadedAudio||selecting} onClick={()=>void(playing||busy?onPause():onStart())}>{playing||busy?"PAUSE / CANCEL":"PLAY LOADED AUDIO"}</button>
         {!audio.hasLoadedAudio&&<p className="service-note">Import or load audio before playback. No audio is currently ready.</p>}
         <div className="service-next"><small>NEXT IN RUNNING ORDER</small><strong>{nextSong?.title??"End of service"}</strong><span>{nextSong?"Not loaded. Select it when ready.":"No next item."}</span></div>
       </aside>
       <section className="panel service-preparation"><header><h2>Prepare selected item</h2><button onClick={onOpenArrangement}>Open arrangement →</button></header><div className="preparation-grid"><div><small>STRUCTURE</small><strong>{selected.sections.length} sections</strong><p>{selected.sections.map(section=>section.name).join(" → ") || "No sections defined"}</p></div><div><small>START COUNT-IN</small><div className="count-options">{([0,1,2] as const).map(bars=><button key={bars} disabled={playing||busy} className={(bars===0?selected.countIn.mode==="none":selected.countIn.mode==="bars"&&selected.countIn.value===bars)?"active":""} onClick={()=>onSongChange({...selected,countIn:bars===0?{mode:"none"}:{mode:"bars",value:bars}})}>{bars===0?"Off":bars+ (bars===1?" bar":" bars")}</button>)}</div><p>Applies to this item. Configure guide routing in Connections.</p></div></div></section>
-      <aside className="panel service-health"><header><h2>Audio status</h2></header><strong>{audio.status.deviceName??"No device initialized"}</strong><p>{audio.status.deviceError||(!audio.status.initialized?"Load audio to initialize the native engine.":"Engine initialized. Validate the physical output before the show.")}</p><div className="actual-meters">{([audio.status.peakLeft??0,audio.status.peakRight??0]).map((level,index)=><div key={index}><span>{index===0?"L":"R"}</span><meter min={0} max={1} value={level} aria-label={index===0?"Left audio peak":"Right audio peak"}/></div>)}</div></aside>
+      <aside className="panel service-health"><header><h2>Show readiness</h2><button onClick={onCheckMedia}>Check files</button></header><strong>{audio.status.deviceName??"No audio device initialized"}</strong><p>{audio.status.deviceError||(!audio.status.initialized?"Load audio to initialize the native engine.":"Engine initialized. Validate the physical output before the show.")}</p><div className="actual-meters">{([audio.status.peakLeft??0,audio.status.peakRight??0]).map((level,index)=><div key={index}><span>{index===0?"L":"R"}</span><meter min={0} max={1} value={level} aria-label={index===0?"Left audio peak":"Right audio peak"}/></div>)}</div><div className="service-file-check" aria-live="polite">{!mediaCheck ? "Media files have not been checked." : mediaCheck.error ? mediaCheck.error : mediaCheck.missing.length ? <><strong>{mediaCheck.missing.length} missing or empty media file{mediaCheck.missing.length===1?"":"s"}</strong><ul>{mediaCheck.missing.map(path=><li key={path} title={path}>{path.split(/[\\/]/).pop() || path}</li>)}</ul></> : mediaCheck.checked ? `${mediaCheck.checked} assigned media files found. Check audio routing and receivers separately.` : "No media files assigned yet."}</div></aside>
     </div>
   </section>;
 }
@@ -1227,12 +1293,23 @@ function SongsPage({
 function Arrangement({
   song,
   audio,
-  onSongChange
+  onSongChange,
+  onNativeLoaded,
+  onSave
 }: {
   song: Song;
   audio: AudioEngineController;
   onSongChange: (song: Song) => void;
+  onNativeLoaded: (tracks: NativeAudioTrack[], status: NativeAudioStatus) => void;
+  onSave: () => void;
 }) {
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState(song.title);
+  const [artistDraft, setArtistDraft] = useState(song.artist);
+  const [bpmDraft, setBpmDraft] = useState(song.bpm);
+  const [keyDraft, setKeyDraft] = useState(song.key);
+  const [meterTopDraft, setMeterTopDraft] = useState(song.meter[0]);
+  const [meterBottomDraft, setMeterBottomDraft] = useState(song.meter[1]);
   const [selectedSectionIndex, setSelectedSectionIndex] = useState(
     Math.min(4, Math.max(0, song.sections.length - 1))
   );
@@ -1242,6 +1319,21 @@ function Arrangement({
   const totalBars = Math.max(
     ...song.sections.map((section) => section.startBar + section.lengthBars - 1)
   );
+
+  async function importAudio(paths?: string[]) {
+    const result = paths ? await audio.loadPaths(paths) : await audio.chooseAndLoad();
+    if (result) onNativeLoaded(result.tracks, result.status);
+  }
+  async function toggleTrack(track: Song["tracks"][number], field: "solo" | "muted") {
+    const id = track.media?.id;
+    if (!id || !audio.tracks.some(media => media.id === id)) return;
+    const next = !track[field];
+    try {
+      if (field === "solo") await audio.setTrackSolo(id, next);
+      else await audio.setTrackMuted(id, next);
+      onSongChange({ ...song, tracks: song.tracks.map(item => item.id === track.id ? { ...item, [field]: next } : item) });
+    } catch { /* Native status exposes the error; do not claim the toggle changed. */ }
+  }
 
   function assignMedia(trackId: string, mediaId: string) {
     const media = audio.tracks.find((item) => item.id === mediaId);
@@ -1266,13 +1358,13 @@ function Arrangement({
       }
       if (event.payload.type === "drop") {
         setNativeDropActive(false);
-        void audio.loadPaths(event.payload.paths);
+        void importAudio(event.payload.paths);
         return;
       }
       setNativeDropActive(false);
     }).then((stop) => { unlisten = stop; });
     return () => unlisten?.();
-  }, [audio.loadPaths]);
+  }, [audio.loadPaths, onNativeLoaded]);
 
   function setSongCountIn(settings: CountInSettings) {
     onSongChange({ ...song, countIn: settings });
@@ -1342,15 +1434,15 @@ function Arrangement({
     <section className="arrange-page">
       <div className="page-head">
         <div>
-          <h1>{song.title}</h1>
+          {editingTitle ? <form className="arrangement-metadata" onSubmit={event => { event.preventDefault(); if (!titleDraft.trim() || !keyDraft.trim() || !Number.isInteger(bpmDraft) || bpmDraft < 20 || bpmDraft > 300 || !Number.isInteger(meterTopDraft) || meterTopDraft < 1 || meterTopDraft > 16 || ![2,4,8,16].includes(meterBottomDraft)) return; onSongChange({ ...song, title: titleDraft.trim(), artist: artistDraft.trim(), bpm: bpmDraft, key: keyDraft.trim(), meter: [meterTopDraft,meterBottomDraft] }); setEditingTitle(false); }}><label>Title<input value={titleDraft} onChange={event => setTitleDraft(event.target.value)} autoFocus required/></label><label>Artist<input value={artistDraft} onChange={event => setArtistDraft(event.target.value)}/></label><label>Tempo<input type="number" min="20" max="300" value={bpmDraft} onChange={event=>setBpmDraft(Number(event.target.value))} required/></label><label>Key<input value={keyDraft} onChange={event=>setKeyDraft(event.target.value)} required/></label><label>Meter<input type="number" min="1" max="16" value={meterTopDraft} onChange={event=>setMeterTopDraft(Number(event.target.value))} required/></label><label>Beat unit<select value={meterBottomDraft} onChange={event=>setMeterBottomDraft(Number(event.target.value))}>{[2,4,8,16].map(value=><option key={value} value={value}>{value}</option>)}</select></label><button type="submit" disabled={!titleDraft.trim()||!keyDraft.trim()}>Apply details</button><button type="button" onClick={() => setEditingTitle(false)}>Cancel</button></form> : <h1>{song.title}</h1>}
           <p>
             {song.bpm} BPM · {song.key} · {song.meter.join("/")} · {fmt(song.durationSeconds)}
           </p>
         </div>
         <div className="head-actions">
-          <button onClick={() => void audio.chooseAndLoad()}>Import Audio</button>
-          <button>Edit</button>
-          <button className="primary">Save</button>
+          <button onClick={() => void importAudio()}>Import Audio</button>
+          <button onClick={() => { setTitleDraft(song.title); setArtistDraft(song.artist); setBpmDraft(song.bpm); setKeyDraft(song.key); setMeterTopDraft(song.meter[0]); setMeterBottomDraft(song.meter[1]); setEditingTitle(true); }}>Edit details</button>
+          <button className="primary" onClick={onSave}>Save Project</button>
         </div>
       </div>
 
@@ -1596,8 +1688,8 @@ function Arrangement({
           return (
             <div className="track-lane" key={track.id}>
               <div className="track-label">
-                <button>S</button>
-                <button>M</button>
+                <button title="Solo this loaded track" aria-label={`Solo ${track.name}`} className={track.solo?"active":""} disabled={!track.media || !assignedMedia} onClick={() => void toggleTrack(track,"solo")}>S</button>
+                <button title="Mute this loaded track" aria-label={`Mute ${track.name}`} className={track.muted?"active":""} disabled={!track.media || !assignedMedia} onClick={() => void toggleTrack(track,"muted")}>M</button>
                 <span style={{ color: track.color }}>{track.name}</span>
                 {track.media && <small title={track.media.path}>{assignedMedia?.name ?? track.media.path.split(/[\\/]/).pop()}</small>}
               </div>
@@ -1612,11 +1704,11 @@ function Arrangement({
                 }}
               >
                 {track.kind === "lighting" ? (
-                  <LightingAutomation />
+                  <span className="audio-clip-label">Lighting cues are configured per section</span>
                 ) : track.kind === "video" ? (
-                  <VideoLane />
+                  <span className="audio-clip-label">Video is configured in the Video editor</span>
                 ) : track.media ? (
-                  <><Waveform seed={index} color={track.color} /><span className="audio-clip-label">{assignedMedia?.name ?? "Assigned Audio"}</span></>
+                  <span className="audio-clip-label">{assignedMedia?.name ?? "Assigned audio · load to verify"}</span>
                 ) : (
                   <div className="audio-drop-placeholder">DROP AUDIO HERE</div>
                 )}
@@ -1729,42 +1821,6 @@ function Arrangement({
         </div>
       )}
     </section>
-  );
-}
-
-function Waveform({ seed, color }: { seed: number; color: string }) {
-  const bars = useMemo(
-    () => Array.from({ length: 94 }, (_, index) => 20 + ((index * 19 + seed * 31) % 64)),
-    [seed]
-  );
-
-  return (
-    <div className="wave" style={{ color }}>
-      {bars.map((height, index) => (
-        <i key={index} style={{ height: height + "%" }} />
-      ))}
-    </div>
-  );
-}
-
-function LightingAutomation() {
-  return (
-    <svg className="automation" viewBox="0 0 1000 58" preserveAspectRatio="none">
-      <polyline points="0,42 120,38 120,20 260,20 260,44 430,44 430,15 610,15 610,34 780,34 780,10 1000,30" />
-    </svg>
-  );
-}
-
-function VideoLane() {
-  return (
-    <div className="video-lane">
-      {["Intro", "Verse", "Chorus", "Verse", "Bridge", "Finale"].map((label) => (
-        <div key={label}>
-          <Clapperboard size={13} />
-          {label}
-        </div>
-      ))}
-    </div>
   );
 }
 
@@ -2158,7 +2214,7 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
               onPointerLeave={() => liftPad(slot, index)}
             >
               <span>{index + 1}</span>
-              <Waveform seed={index} color={["#fbbf24", "#60a5fa", "#f472b6", "#2dd4bf"][index % 4]} />
+              <span className="pad-source-label">{slot.path ? slot.path.split(/[\\/]/).pop() : "Assign a file"}</span>
               <strong>{slot.name}</strong>
               <small>{slot.path ? slot.mode : "Empty"}</small>
             </button>
@@ -2168,7 +2224,7 @@ function Pads({ initialPads, initialPadCount, onChange }: { initialPads?: PadSlo
         <div className="panel pad-inspector">
           <small>PAD {active + 1}</small>
           <h2>{pad.name}</h2>
-          <Waveform seed={active} color="#fbbf24" />
+          <p className="pad-source-label">{pad.path ? pad.path.split(/[\\/]/).pop() : "No audio file assigned"}</p>
           <label><span>Mode</span><select value={pad.mode} onChange={(e) => { const next = { ...pad, mode: e.currentTarget.value as PadSlot["mode"] }; updatePad({ mode: next.mode }); if (next.path) void loadNativePad(active, next); }}>
             <option value="one-shot">One Shot</option><option value="loop">Loop</option><option value="hold">Hold</option><option value="latch">Latch</option>
           </select></label>
@@ -2583,12 +2639,7 @@ function Lighting({
               </div>
             ))}
           </div>
-          {["Intensity", "Color", "Movement", "Beam", "Strobe", "FX"].map((lane, index) => (
-            <div className="light-lane" key={lane}>
-              <strong>{lane}</strong>
-              <div><Waveform seed={index} color={["#60a5fa", "#f472b6", "#22d3ee", "#a78bfa", "#cbd5e1", "#8b5cf6"][index]} /></div>
-            </div>
-          ))}
+          <div className="light-lane"><strong>Section cues</strong><div>{song.sections.map(section => <span key={section.id} title={section.name} className="light-cue-label">{section.lightingCue || "No cue"}</span>)}</div></div>
         </div>
 
         <div className="panel cue-inspector">
