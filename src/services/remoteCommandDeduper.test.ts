@@ -21,6 +21,7 @@ describe("RemoteCommandDeduper", () => {
 
     const first = deduper.execute(command("go-1"), handler);
     const duplicate = deduper.execute(command("go-1"), handler);
+    await Promise.resolve();
     expect(handler).toHaveBeenCalledTimes(1);
     release();
 
