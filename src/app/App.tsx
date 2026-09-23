@@ -270,6 +270,11 @@ export function App() {
       program:project.video,
       positionSeconds:audio.status.positionSeconds ?? 0,
       playing:Boolean(audio.status.playing || previewPlaying),
+      playback:audio.status.playing || previewPlaying
+        ?"playing"
+        :(audio.status.positionSeconds ?? 0) > .05
+          ?"paused"
+          :"stopped",
       sectionId:section?.id,
       sectionName:section?.name,
       sectionIndex:section ? currentSection : undefined,
