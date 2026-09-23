@@ -9,25 +9,32 @@ export function useLumaRig() {
   const [peer, setPeer] = useState<LumaRigPeer | null>(null);
   const [error, setError] = useState("");
 
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [lastMessageAt, setLastMessageAt] = useState<number | null>(null);
+  const operation = useRef(0);
   const refresh = useCallback(() => {
     setState(clientRef.current!.state);
     setPeer(clientRef.current!.peer);
+    setLatencyMs(clientRef.current!.latencyMs);
+    setLastMessageAt(clientRef.current!.lastMessageAt);
+    if (clientRef.current!.lastError) setError(clientRef.current!.lastError);
   }, []);
 
   const connect = useCallback(async (target: LumaRigPeer) => {
+    const currentOperation = ++operation.current;
     setError("");
     setState("connecting");
     try {
       await clientRef.current!.connect(target);
       refresh();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
-      setState("disconnected");
+      if (operation.current === currentOperation) { setError(cause instanceof Error ? cause.message : String(cause)); refresh(); }
       throw cause;
     }
   }, [refresh]);
 
   const disconnect = useCallback(async () => {
+    ++operation.current;
     await clientRef.current!.disconnect();
     refresh();
   }, [refresh]);
@@ -42,7 +49,7 @@ export function useLumaRig() {
   const resolveSong = useCallback(async (identity: LumaRigSongIdentity, createIfMissing = true) =>
     send({ type: "song.resolve", ...identity, createIfMissing }), [send]);
 
-  useEffect(() => () => { void clientRef.current?.disconnect(); }, []);
+  useEffect(() => { const timer = window.setInterval(refresh, 250); return () => { window.clearInterval(timer); void clientRef.current?.disconnect(); }; }, [refresh]);
 
-  return { state, peer, error, connect, disconnect, send, resolveSong };
+  return { state, peer, error, latencyMs, lastMessageAt, connect, disconnect, send, resolveSong };
 }
