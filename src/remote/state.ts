@@ -1,22 +1,8 @@
 import { musicalPositionAtSeconds } from "../domain/timing";
 import type { Setlist, Song } from "../domain/types";
 import type { NativeAudioStatus } from "../services/audio";
+import type { PadSlot } from "../services/pads";
 import { REMOTE_PROTOCOL_VERSION, type RemoteStudioState } from "./protocol";
-
-const padNames = [
-  "Warmth",
-  "Air",
-  "Deep",
-  "Shimmer",
-  "Bloom",
-  "Motion",
-  "Glass",
-  "Soft",
-  "Wide",
-  "Choir",
-  "Atmos",
-  "Ritual"
-];
 
 const padColors = [
   "#fbbf24",
@@ -41,7 +27,9 @@ export function buildRemoteStudioState({
   audioStatus,
   queuedSectionIndex = null,
   lightingConnected = false,
-  lightingBlackout = false
+  lightingBlackout = false,
+  pads = [],
+  activePadIds = new Set<string>()
 }: {
   setlist: Setlist;
   song: Song;
@@ -51,6 +39,8 @@ export function buildRemoteStudioState({
   queuedSectionIndex?: number | null;
   lightingConnected?: boolean;
   lightingBlackout?: boolean;
+  pads?: PadSlot[];
+  activePadIds?: ReadonlySet<string>;
 }): RemoteStudioState {
   const safeSectionIndex = clampSectionIndex(song, currentSectionIndex);
   const currentSection = song.sections[safeSectionIndex];
@@ -129,11 +119,11 @@ export function buildRemoteStudioState({
           ? song.sections[queuedSectionIndex]?.id ?? null
           : null
     },
-    pads: padNames.map((name, index) => ({
-      id: "pad-" + (index + 1),
-      name,
-      active: false,
-      color: padColors[index]
+    pads: pads.map((slot, index) => ({
+      id: slot.id,
+      name: slot.name,
+      active: activePadIds.has(slot.id),
+      color: padColors[index % padColors.length]
     })),
     mixer: audioTracks.map((track, index) => ({
       id: track.id,
