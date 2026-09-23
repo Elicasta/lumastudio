@@ -53,6 +53,32 @@ describe("buildRemoteStudioState", () => {
     ]);
   });
 
+  it("publishes the actual configured pad bank and shared active state", () => {
+    const pads = [{
+      id: "pad-prayer",
+      name: "Prayer Atmosphere",
+      path: "/show/prayer.wav",
+      mode: "latch" as const,
+      gainDb: -6,
+      octave: 0,
+      width: 80,
+      attackMs: 100,
+      releaseMs: 1200
+    }];
+    const state = buildRemoteStudioState({
+      setlist: demoSetlist,
+      song: goodness,
+      currentSectionIndex: 0,
+      previewPlaying: false,
+      audioStatus: { initialized: true },
+      pads,
+      activePadIds: new Set(["pad-prayer"])
+    });
+
+    expect(state.pads).toHaveLength(1);
+    expect(state.pads[0]).toMatchObject({ id: "pad-prayer", name: "Prayer Atmosphere", active: true });
+  });
+
   it("does not claim MIDI or lighting are live before those runtimes exist", () => {
     const state = buildRemoteStudioState({
       setlist: demoSetlist,
