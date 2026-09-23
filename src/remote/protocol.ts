@@ -97,6 +97,8 @@ export interface RemoteStudioState {
     id: string;
     name: string;
     active: boolean;
+    ready: boolean;
+    mode: "one-shot" | "loop" | "hold" | "latch";
     color: string;
   }>;
   mixer: Array<{
