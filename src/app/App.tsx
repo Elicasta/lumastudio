@@ -116,6 +116,8 @@ export function App() {
   const lumaVizMediaRef = useRef<LumaVizMediaBus>();
   const [importOpen, setImportOpen] = useState(false);
   const [currentSection, setCurrentSection] = useState(0);
+  const currentSectionRef = useRef(0);
+  const remoteSectionTransitionRef = useRef(false);
   const [liveLayout, setLiveLayout] = useState<"session"|"performance">("session");
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const selectingSongRef = useRef(false);
@@ -133,6 +135,7 @@ export function App() {
   useEffect(() => () => {
     for (let index = 0; index < 16; index += 1) void stopNativePad(index);
   }, []);
+  currentSectionRef.current = currentSection;
   recoverySnapshotRef.current = { ...project, setlist: { ...project.setlist, songs: project.setlist.songs.map(song => song.id === selectedSong.id ? selectedSong : song) } };
   useEffect(() => {
     if (pendingRecovery) return;
@@ -389,6 +392,7 @@ export function App() {
 
     if (audio.status.transitionActive) {
       await audio.cancelTransition();
+      remoteSectionTransitionRef.current = false;
       setQueuedManualSection(null);
       return;
     }
@@ -409,14 +413,16 @@ export function App() {
       await audio.stop();
     }
     setPreviewPlaying(false);
+    remoteSectionTransitionRef.current = false;
     setQueuedManualSection(null);
+    currentSectionRef.current = 0;
     setCurrentSection(0);
   }, [audio.hasLoadedAudio, audio.stop]);
 
   const launchSection = useCallback(
-    async (index: number) => {
+    async (index: number): Promise<boolean> => {
       const target = selectedSong.sections[index];
-      if (!target) return;
+      if (!target) return false;
 
       if (audio.hasLoadedAudio && audio.status.playing) {
         if (audio.status.transitionActive) {
@@ -457,7 +463,7 @@ export function App() {
               }))
             : []
         });
-        return;
+        return true;
       }
 
       if (audio.hasLoadedAudio) {
@@ -465,7 +471,9 @@ export function App() {
       }
 
       setQueuedManualSection(null);
+      currentSectionRef.current = index;
       setCurrentSection(index);
+      return false;
     },
     [
       audio.cancelTransition,
@@ -488,8 +496,10 @@ export function App() {
       audio.status.positionSeconds ?? 0
     );
 
+    currentSectionRef.current = index;
     setCurrentSection((current) => (current === index ? current : index));
     setQueuedManualSection((queued) => (queued === index ? null : queued));
+    remoteSectionTransitionRef.current = false;
   }, [
     audio.hasLoadedAudio,
     audio.status.transitionActive,
@@ -532,29 +542,57 @@ export function App() {
 
         case "transport.pause":
           await pausePlayback();
+          remoteSectionTransitionRef.current = false;
           return ok();
 
         case "transport.stop":
           await stopPlayback();
+          remoteSectionTransitionRef.current = false;
           return ok();
 
         case "transport.go":
-        case "transport.next":
-          await launchSection(
-            Math.min(selectedSong.sections.length - 1, currentSection + 1)
-          );
-          return ok();
+        case "transport.next": {
+          if (remoteSectionTransitionRef.current) return reject("A section transition is already in progress.");
+          remoteSectionTransitionRef.current = true;
+          try {
+            const pending = await launchSection(
+              Math.min(selectedSong.sections.length - 1, currentSectionRef.current + 1)
+            );
+            if (!pending) remoteSectionTransitionRef.current = false;
+            return ok();
+          } catch (error) {
+            remoteSectionTransitionRef.current = false;
+            throw error;
+          }
+        }
 
-        case "transport.previous":
-          await launchSection(Math.max(0, currentSection - 1));
-          return ok();
+        case "transport.previous": {
+          if (remoteSectionTransitionRef.current) return reject("A section transition is already in progress.");
+          remoteSectionTransitionRef.current = true;
+          try {
+            const pending = await launchSection(Math.max(0, currentSectionRef.current - 1));
+            if (!pending) remoteSectionTransitionRef.current = false;
+            return ok();
+          } catch (error) {
+            remoteSectionTransitionRef.current = false;
+            throw error;
+          }
+        }
 
         case "section.launch": {
           const id = String(message.payload?.id ?? "");
           const index = selectedSong.sections.findIndex((section) => section.id === id);
           if (index < 0) return reject("Section not found in the current Song.");
-          await launchSection(index);
-          return ok();
+          if (remoteSectionTransitionRef.current) return reject("A section transition is already in progress.");
+          remoteSectionTransitionRef.current = true;
+          try {
+            const pending = await launchSection(index);
+            if (!pending) remoteSectionTransitionRef.current = false;
+            return ok();
+          } catch (error) {
+            remoteSectionTransitionRef.current = false;
+            throw error;
+          }
         }
 
         case "song.next":
