@@ -1,16 +1,25 @@
-/* LUMA operator foundation v1. Keep tokens aligned across desktop apps. */
+/* LUMA operator foundation v2. Keep tokens aligned across the ecosystem. */
 :root {
-  --luma-canvas: #0d1218;
-  --luma-panel: #151e27;
-  --luma-raised: #1b2732;
-  --luma-line: #344451;
-  --luma-text: #e2eaf1;
-  --luma-muted: #a5b5c3;
-  --luma-focus: #a6caff;
-  --luma-live: #8fe2b5;
-  --luma-cued: #e8c281;
-  --luma-danger: #f1a3a8;
+  color-scheme: dark;
+  --luma-canvas: #0b1117;
+  --luma-chrome: #101820;
+  --luma-panel: #141e27;
+  --luma-raised: #1b2731;
+  --luma-raised-strong: #22323e;
+  --luma-line: #30414d;
+  --luma-line-strong: #455d6b;
+  --luma-text: #e4edf3;
+  --luma-muted: #9aadb9;
+  --luma-dim: #70828f;
+  --luma-focus: #9dc6ea;
+  --luma-live: #78dda9;
+  --luma-preview: #8fb9e3;
+  --luma-cued: #d9b878;
+  --luma-danger: #eda0a5;
+  --luma-radius: 6px;
 }
+
+body { background: var(--luma-canvas); }
 :is(.app-shell, .app) { color: var(--luma-text); }
 :is(.app-shell, .app) :is(button, input, select, textarea):focus-visible {
   outline: 2px solid var(--luma-focus);
@@ -18,22 +27,117 @@
 }
 :is(.app-shell, .app) :is(input, select, textarea) { font-variant-numeric: tabular-nums; }
 :is(.app-shell, .app) button:disabled { cursor: not-allowed; }
-:is(.app-shell, .app) button { transition: border-color 100ms ease, background-color 100ms ease; }
+:is(.app-shell, .app) button {
+  transition: border-color 100ms ease, background-color 100ms ease, color 100ms ease;
+}
+:is(.app-shell, .app) * { scrollbar-color: var(--luma-line-strong) var(--luma-chrome); }
 @media (prefers-reduced-motion: reduce) {
   :is(.app-shell, .app) button { transition: none; }
 }
 
-/* Studio: a quiet service workspace, with transport state carrying emphasis. */
-body { background:var(--luma-canvas); }
-.sidebar { background:#111922; border-color:var(--luma-line); }
-.brand span { font-size:9px; color:var(--luma-muted); letter-spacing:.08em; }
-.nav { min-height:40px; border-radius:5px; }
-.nav.active { background:#243b4d; border-color:#678ba8; }
-.sidebar-status { border-radius:6px; border-color:var(--luma-line); }
-.sidebar-status small { color:var(--luma-muted); }
-.session-track-head :is(small,span), .scene-launch small, .session-slot small { font-size:10px; line-height:1.5; }
-.session-track-control button { font-size:10px; min-height:32px; }
-.session-heading small, .session-cue-board small { font-size:10px; }
-.session-slot { min-height:78px; }
-.service-heading h1 { letter-spacing:-.025em; }
-.service-health { border-color:var(--luma-line); }
+/* Studio: a calm service workspace, with transport and playback carrying emphasis. */
+.app-shell { background: var(--luma-canvas); }
+.app-shell .sidebar {
+  background: var(--luma-chrome);
+  border-color: var(--luma-line);
+}
+.app-shell .brand { padding-bottom: 20px; }
+.app-shell .brand-mark {
+  background: linear-gradient(145deg, #5d8aa2, #5d607e);
+  filter: saturate(.72);
+}
+.app-shell .brand span {
+  color: var(--luma-muted);
+  font-size: 9px;
+  letter-spacing: .08em;
+}
+.app-shell .nav {
+  min-height: 40px;
+  border-radius: 5px;
+  color: var(--luma-muted);
+}
+.app-shell .nav:hover { color: var(--luma-text); background: var(--luma-raised); }
+.app-shell .nav.active {
+  color: var(--luma-text);
+  border-color: var(--luma-line-strong);
+  background: var(--luma-raised-strong);
+  box-shadow: inset 3px 0 var(--luma-focus);
+}
+.app-shell .sidebar-status {
+  border-color: var(--luma-line);
+  border-radius: 6px;
+  background: var(--luma-panel);
+}
+.app-shell .sidebar-status small { color: var(--luma-muted); }
+.app-shell .transport {
+  border-color: var(--luma-line);
+  background: color-mix(in srgb, var(--luma-chrome) 96%, transparent);
+  box-shadow: 0 8px 24px rgba(0,0,0,.12);
+}
+.app-shell :is(.tempo, .meter, .quantize) {
+  border-color: var(--luma-line);
+  border-radius: 6px;
+  background: var(--luma-panel);
+}
+.app-shell button { border-radius: 5px; }
+.app-shell button:not(.primary):not(.transport-btn):hover {
+  border-color: var(--luma-line-strong);
+}
+.app-shell .panel {
+  border-color: var(--luma-line);
+  border-radius: 7px;
+  background: var(--luma-panel);
+}
+.app-shell .page-head h1,
+.app-shell .service-heading h1 { letter-spacing: -.025em; }
+.app-shell .page-head p { color: var(--luma-muted); line-height: 1.5; }
+.app-shell .primary {
+  border-color: var(--luma-line-strong);
+  background: var(--luma-raised-strong);
+  color: var(--luma-text);
+}
+.app-shell .primary:hover { border-color: var(--luma-focus); background: #293d4b; }
+.app-shell .transport-btn.live {
+  color: #10271f;
+  background: var(--luma-live);
+  box-shadow: 0 0 18px color-mix(in srgb, var(--luma-live) 22%, transparent);
+}
+.app-shell .song-row.selected {
+  color: var(--luma-text);
+  background: var(--luma-raised-strong);
+  outline-color: var(--luma-line-strong);
+  box-shadow: inset 3px 0 var(--luma-focus);
+}
+.app-shell .now-playing {
+  border-color: var(--luma-line);
+  background: var(--luma-panel);
+}
+.app-shell .session-track-head :is(small, span),
+.app-shell .scene-launch small,
+.app-shell .session-slot small,
+.app-shell .session-heading small,
+.app-shell .session-cue-board small {
+  font-size: 10px;
+  line-height: 1.5;
+}
+.app-shell .session-track-control button {
+  min-height: 32px;
+  font-size: 10px;
+}
+.app-shell .session-slot {
+  min-height: 78px;
+  border-color: var(--luma-line);
+  border-radius: 5px;
+}
+.app-shell .session-slot:hover { border-color: var(--luma-line-strong); }
+.app-shell .session-slot.current,
+.app-shell .session-slot.playing {
+  border-color: var(--luma-live);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--luma-live) 45%, transparent);
+}
+.app-shell .session-slot.queued,
+.app-shell .session-slot.cued {
+  border-color: var(--luma-preview);
+}
+.app-shell .service-health { border-color: var(--luma-line); }
+.app-shell .status { color: var(--luma-muted); }
