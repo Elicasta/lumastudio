@@ -1,0 +1,39 @@
+/* LUMA operator foundation v1. Keep tokens aligned across desktop apps. */
+:root {
+  --luma-canvas: #0d1218;
+  --luma-panel: #151e27;
+  --luma-raised: #1b2732;
+  --luma-line: #344451;
+  --luma-text: #e2eaf1;
+  --luma-muted: #a5b5c3;
+  --luma-focus: #a6caff;
+  --luma-live: #8fe2b5;
+  --luma-cued: #e8c281;
+  --luma-danger: #f1a3a8;
+}
+:is(.app-shell, .app) { color: var(--luma-text); }
+:is(.app-shell, .app) :is(button, input, select, textarea):focus-visible {
+  outline: 2px solid var(--luma-focus);
+  outline-offset: 2px;
+}
+:is(.app-shell, .app) :is(input, select, textarea) { font-variant-numeric: tabular-nums; }
+:is(.app-shell, .app) button:disabled { cursor: not-allowed; }
+:is(.app-shell, .app) button { transition: border-color 100ms ease, background-color 100ms ease; }
+@media (prefers-reduced-motion: reduce) {
+  :is(.app-shell, .app) button { transition: none; }
+}
+
+/* Studio: a quiet service workspace, with transport state carrying emphasis. */
+body { background:var(--luma-canvas); }
+.sidebar { background:#111922; border-color:var(--luma-line); }
+.brand span { font-size:9px; color:var(--luma-muted); letter-spacing:.08em; }
+.nav { min-height:40px; border-radius:5px; }
+.nav.active { background:#243b4d; border-color:#678ba8; }
+.sidebar-status { border-radius:6px; border-color:var(--luma-line); }
+.sidebar-status small { color:var(--luma-muted); }
+.session-track-head :is(small,span), .scene-launch small, .session-slot small { font-size:10px; line-height:1.5; }
+.session-track-control button { font-size:10px; min-height:32px; }
+.session-heading small, .session-cue-board small { font-size:10px; }
+.session-slot { min-height:78px; }
+.service-heading h1 { letter-spacing:-.025em; }
+.service-health { border-color:var(--luma-line); }
