@@ -97,6 +97,8 @@ export interface RemoteStudioState {
     id: string;
     name: string;
     active: boolean;
+    ready: boolean;
+    mode: "one-shot" | "loop" | "hold" | "latch";
     color: string;
   }>;
   mixer: Array<{
@@ -110,6 +112,7 @@ export interface RemoteStudioState {
   }>;
   lighting: {
     blackout: boolean;
+    xySupported: boolean;
     scenes: Array<{
       id: string;
       name: string;
@@ -139,6 +142,13 @@ export function isRemoteCommandEnvelope(value: unknown): value is RemoteCommandE
   return (
     candidate.type === "command" &&
     typeof candidate.id === "string" &&
-    isRemoteCommand(candidate.command)
+    candidate.id.length > 0 &&
+    candidate.id.length <= 128 &&
+    isRemoteCommand(candidate.command) &&
+    (candidate.payload === undefined || (
+      candidate.payload !== null &&
+      typeof candidate.payload === "object" &&
+      !Array.isArray(candidate.payload)
+    ))
   );
 }

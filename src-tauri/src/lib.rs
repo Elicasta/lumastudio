@@ -61,6 +61,7 @@ pub fn run() {
             audio::audio_cancel_transition,
             project::project_read,
             project::project_write,
+            project::project_media_status,
             video::video_open_output,
             video::video_close_output,
             video::video_fullscreen_output,

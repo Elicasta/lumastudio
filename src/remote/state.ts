@@ -1,22 +1,8 @@
 import { musicalPositionAtSeconds } from "../domain/timing";
 import type { Setlist, Song } from "../domain/types";
 import type { NativeAudioStatus } from "../services/audio";
+import type { PadSlot } from "../services/pads";
 import { REMOTE_PROTOCOL_VERSION, type RemoteStudioState } from "./protocol";
-
-const padNames = [
-  "Warmth",
-  "Air",
-  "Deep",
-  "Shimmer",
-  "Bloom",
-  "Motion",
-  "Glass",
-  "Soft",
-  "Wide",
-  "Choir",
-  "Atmos",
-  "Ritual"
-];
 
 const padColors = [
   "#fbbf24",
@@ -39,7 +25,13 @@ export function buildRemoteStudioState({
   currentSectionIndex,
   previewPlaying,
   audioStatus,
-  queuedSectionIndex = null
+  queuedSectionIndex = null,
+  lightingConnected = false,
+  lightingBlackout = false,
+  lightingSceneId = null,
+  lightingXySupported = false,
+  pads = [],
+  activePadIds = new Set<string>()
 }: {
   setlist: Setlist;
   song: Song;
@@ -47,6 +39,12 @@ export function buildRemoteStudioState({
   previewPlaying: boolean;
   audioStatus: NativeAudioStatus;
   queuedSectionIndex?: number | null;
+  lightingConnected?: boolean;
+  lightingBlackout?: boolean;
+  lightingSceneId?: string | null;
+  lightingXySupported?: boolean;
+  pads?: PadSlot[];
+  activePadIds?: ReadonlySet<string>;
 }): RemoteStudioState {
   const safeSectionIndex = clampSectionIndex(song, currentSectionIndex);
   const currentSection = song.sections[safeSectionIndex];
@@ -65,6 +63,11 @@ export function buildRemoteStudioState({
   const audioTracks = song.tracks.filter(
     (track) => !["midi", "lighting", "video"].includes(track.kind)
   );
+  const lightingScenes = [...new Map(song.sections.flatMap((section) =>
+    section.lightingCue
+      ? [[section.lightingCue, { id: section.lightingCue, name: section.name, color: section.color, active: section.lightingCue === lightingSceneId }] as const]
+      : []
+  )).values()];
 
   return {
     protocolVersion: REMOTE_PROTOCOL_VERSION,
@@ -120,11 +123,13 @@ export function buildRemoteStudioState({
           ? song.sections[queuedSectionIndex]?.id ?? null
           : null
     },
-    pads: padNames.map((name, index) => ({
-      id: "pad-" + (index + 1),
-      name,
-      active: false,
-      color: padColors[index]
+    pads: pads.map((slot, index) => ({
+      id: slot.id,
+      name: slot.name,
+      active: activePadIds.has(slot.id),
+      ready: Boolean(slot.path),
+      mode: slot.mode,
+      color: padColors[index % padColors.length]
     })),
     mixer: audioTracks.map((track, index) => ({
       id: track.id,
@@ -136,20 +141,16 @@ export function buildRemoteStudioState({
       color: track.color
     })),
     lighting: {
-      blackout: false,
+      blackout: lightingBlackout,
+      xySupported: lightingXySupported,
       x: 0.5,
       y: 0.5,
-      scenes: [
-        { id: "clean", name: "Clean", color: "#60a5fa", active: false },
-        { id: "verse", name: "Verse", color: "#34d399", active: false },
-        { id: "chorus", name: "Chorus", color: "#f472b6", active: false },
-        { id: "bridge", name: "Bridge", color: "#a78bfa", active: false }
-      ]
+      scenes: lightingScenes
     },
     health: {
       audio: Boolean(audioStatus.initialized) && !audioStatus.deviceError,
       midi: false,
-      lighting: false,
+      lighting: lightingConnected,
       remote: true
     }
   };

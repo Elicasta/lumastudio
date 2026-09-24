@@ -51,9 +51,41 @@ export function serializeProject(project: StudioProject) {
 export function parseProject(raw: string): StudioProject {
   const value = JSON.parse(raw) as Partial<StudioProject>;
   if (value.schemaVersion !== PROJECT_SCHEMA_VERSION) throw new Error("Unsupported LumaRig Studio project version.");
-  if (!value.id || !value.name || !value.setlist) throw new Error("Invalid LumaRig Studio project.");
+  if (typeof value.id !== "string" || !value.id || typeof value.name !== "string" || !value.name
+    || !value.setlist || typeof value.setlist.id !== "string" || !Array.isArray(value.setlist.songs))
+    throw new Error("Invalid LumaStudio project: missing service or running order.");
+  const ids = new Set<string>();
+  for (const song of value.setlist.songs) {
+    if (!song || typeof song.id !== "string" || !song.id || ids.has(song.id)
+      || typeof song.title !== "string" || !Array.isArray(song.tracks) || !Array.isArray(song.sections)
+      || !Number.isFinite(song.bpm) || song.bpm <= 0
+      || !Array.isArray(song.meter) || song.meter.length !== 2
+      || !song.countIn || !song.manualJumpCountIn || !song.guideVoice || !Array.isArray(song.guideMarkers))
+      throw new Error("Invalid LumaStudio project: a running-order item is incomplete or duplicated.");
+    ids.add(song.id);
+  }
+  if (value.video && !Array.isArray(value.video.clips)) throw new Error("Invalid LumaStudio project: video collection is incomplete.");
+  if (value.padCount !== undefined && value.padCount !== 12 && value.padCount !== 16) throw new Error("Invalid LumaStudio project: pad count is unsupported.");
+  if (value.pads !== undefined) {
+    if (!Array.isArray(value.pads) || value.pads.length > 16) throw new Error("Invalid LumaStudio project: pad collection is incomplete.");
+    const padIds = new Set<string>();
+    for (const pad of value.pads) {
+      if (!pad || typeof pad.id !== "string" || !pad.id || padIds.has(pad.id)
+        || typeof pad.name !== "string" || !pad.name
+        || !["one-shot", "loop", "hold", "latch"].includes(pad.mode)
+        || (pad.path !== undefined && typeof pad.path !== "string")
+        || !Number.isFinite(pad.gainDb) || !Number.isFinite(pad.octave)
+        || !Number.isFinite(pad.width) || pad.width < 0 || pad.width > 100
+        || !Number.isFinite(pad.attackMs) || pad.attackMs < 0
+        || !Number.isFinite(pad.releaseMs) || pad.releaseMs < 0) {
+        throw new Error("Invalid LumaStudio project: a pad is incomplete, duplicated, or unsafe.");
+      }
+      padIds.add(pad.id);
+    }
+  }
   return {
     ...value,
+    selectedSongId: ids.has(value.selectedSongId ?? "") ? value.selectedSongId : value.setlist.songs[0]?.id,
     midi: value.midi ?? defaultMidiSettings(),
     integrations: value.integrations ?? defaultIntegrationSettings()
   } as StudioProject;

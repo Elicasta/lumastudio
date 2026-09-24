@@ -18,8 +18,23 @@ export interface LumaRigSongIdentity {
   bpm: number;
 }
 
+export interface LumaRigRuntimeStatus {
+  blackout: boolean;
+  currentCueId: string | null;
+  activeEffectId: string | null;
+}
+
+export function isLumaRigRuntimeStatus(value: unknown): value is LumaRigRuntimeStatus {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const status = value as Partial<LumaRigRuntimeStatus>;
+  return typeof status.blackout === "boolean"
+    && (status.currentCueId === null || typeof status.currentCueId === "string")
+    && (status.activeEffectId === null || typeof status.activeEffectId === "string");
+}
+
 export type LumaRigCommand =
   | { type: "hello"; protocol: number; clientName: string }
+  | { type: "status.get" }
   | ({ type: "song.resolve"; createIfMissing: boolean } & LumaRigSongIdentity)
   | { type: "show.load"; lumarigShowId: string }
   | { type: "cue.go"; cueId?: string }

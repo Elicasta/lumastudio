@@ -11,3 +11,4 @@ src-tauri/target
 *.p12
 
 voice-packs/generated/
+*.tsbuildinfo

@@ -1,7 +1,7 @@
 name: CI
 on:
   pull_request:
-    branches: [main]
+    branches: [main, "build/**"]
   push:
     branches: [main, "build/**"]
 jobs:
@@ -34,8 +34,11 @@ jobs:
           workspaces: "./src-tauri -> target"
       - run: npm install
       - run: cargo check --manifest-path src-tauri/Cargo.toml
+      - run: cargo test --manifest-path src-tauri/Cargo.toml project::tests::saving_twice_keeps_the_previous_version_as_a_backup
       - run: npm run dmg
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         with:
           name: LumaStudio-macOS-test-DMG
           path: src-tauri/target/release/bundle/dmg/*.dmg
