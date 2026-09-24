@@ -3,6 +3,7 @@ on:
   push:
     branches:
       - build/v0.4-presenter-planning-center
+      - review/ecosystem-reliability
   workflow_dispatch:
 permissions:
   contents: read
