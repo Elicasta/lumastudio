@@ -1,7 +1,7 @@
 import { useState, type CSSProperties } from 'react';
 import type { Song, Track } from '../domain/types';
 import type { AudioEngineController } from '../hooks/useAudioEngine';
-import { sessionSlotState } from '../domain/session';
+import { sessionSlotState, sessionTrackSuppression } from '../domain/session';
 
 export function SessionView({ song, current, queued, audio, onLaunch, onSongChange, onStop }: {
   song: Song; current: number; queued: number | null; audio: AudioEngineController;
@@ -16,6 +16,9 @@ export function SessionView({ song, current, queued, audio, onLaunch, onSongChan
   const loaded = audio.hasLoadedAudio && Boolean(audio.status.initialized);
   const playing = Boolean(audio.status.playing);
   const available = (track: Track) => Boolean(track.media && audio.tracks.some(item => item.id === track.media?.id));
+  const anyLoadedSolo = stems.some(track => available(track) && track.solo);
+  const currentName = song.sections[current]?.name ?? 'No section';
+  const nextName = song.sections[current + 1]?.name ?? 'End of arrangement';
 
   async function launch(index: number) {
     if (busy) return;
@@ -38,13 +41,18 @@ export function SessionView({ song, current, queued, audio, onLaunch, onSongChan
   return <section className="session-desk">
     <header className="session-heading">
       <div><small>SESSION / SECTION LAUNCHER</small><h1>{song.title}</h1><p>{playing ? 'Launch queues a section using this song’s jump count-in.' : 'Choose a section to cue it, then press Play.'} Stems follow the section together.</p></div>
-      <button className="session-stop" disabled={!loaded} onClick={() => void onStop().catch(cause => setError(String(cause)))}>STOP ALL AUDIO</button>
+      <button className="session-stop" disabled={!loaded} title="Stops the song transport. Pad voices have separate controls." onClick={() => void onStop().catch(cause => setError(String(cause)))}>STOP SONG</button>
     </header>
     <div className="session-state-strip">
       <span>{loaded ? (playing ? '● AUDIO PLAYING' : '■ AUDIO STOPPED') : 'NO AUDIO LOADED'}</span>
       <span>{song.bpm} BPM · {song.meter.join('/')}</span>
       <span>{queued !== null ? 'QUEUED: ' + (song.sections[queued]?.name ?? 'Unknown') : 'NO SECTION QUEUED'}</span>
       <span>Jump count: {song.manualJumpCountIn.mode}</span>
+    </div>
+    <div className="session-cue-board" aria-label="Section transport state">
+      <div className={playing ? 'current is-playing' : 'current'}><small>{playing ? 'CURRENT · PLAYING' : 'SELECTED · STOPPED'}</small><strong>{currentName}</strong><span>{loaded ? 'Shared song transport' : 'Audio must be loaded'}</span></div>
+      <div className={queued !== null ? 'is-queued' : ''}><small>QUEUED JUMP</small><strong>{queued !== null ? song.sections[queued]?.name ?? 'Unknown section' : 'None'}</strong><span>{queued !== null ? 'Waiting for the scheduled transition' : 'Choose a section below to cue or launch'}</span></div>
+      <div><small>NEXT IN ARRANGEMENT</small><strong>{nextName}</strong><span>Arrangement order · not a queued command</span></div>
     </div>
     {error && <p className="audio-error" role="alert">{error}</p>}
     {!loaded && <p className="session-empty">Load this song’s audio in Show before launching. Sections remain available for inspection.</p>}
@@ -60,10 +68,13 @@ export function SessionView({ song, current, queued, audio, onLaunch, onSongChan
             <span className="scene-launch-symbol">{state === 'queued' ? '◷' : state === 'playing' ? '●' : '▶'}</span>
             <span><strong>{section.name}</strong><small>{state === 'stopped' ? 'CUED · STOPPED' : state.toUpperCase()} · {section.lengthBars} bars</small></span>
           </button>
-          {stems.length ? stems.map(track => <div key={track.id} className={'session-slot ' + (available(track) ? state : 'unloaded')} style={{ '--track-color': track.color } as CSSProperties}>
+          {stems.length ? stems.map(track => {
+            const suppressed = sessionTrackSuppression(track, anyLoadedSolo);
+            return <div key={track.id} className={'session-slot ' + (available(track) ? suppressed ? 'suppressed' : state : 'unloaded')} style={{ '--track-color': track.color } as CSSProperties}>
             <span>{track.media ? section.name : '—'}</span><small>{track.media ? 'Bar ' + section.startBar + ' · ' + section.lengthBars + ' bars' : 'No assigned media'}</small>
-            {state === 'playing' && available(track) && <i />}
-          </div>) : <div className="session-slot unloaded">Import audio to populate this song.</div>}
+            {available(track) && suppressed && <em className="session-suppressed-label">{suppressed}</em>}
+            {state === 'playing' && available(track) && !suppressed && <i />}
+          </div>; }) : <div className="session-slot unloaded">Import audio to populate this song.</div>}
         </div>;
       })}
       <div className="session-corner"><strong>TRACK CONTROL</strong><small>Applied to loaded stems</small></div>
