@@ -341,16 +341,38 @@ export function App() {
     }] : []);
   }
 
+  const syncInstrumentForSong = useCallback(async (song?: Song) => {
+    const instance = song?.tracks.find(
+      (track) =>
+        track.sourceType === "instrument" &&
+        track.instrument?.mode === "plugin"
+    )?.instrument;
+
+    if (instance?.mode === "plugin") {
+      if (audio.status.instrument?.identifier === instance.plugin.plugin.identifier) {
+        return true;
+      }
+      return audio.loadInstrument(instance.plugin);
+    }
+
+    return audio.unloadInstrument();
+  }, [
+    audio.loadInstrument,
+    audio.unloadInstrument,
+    audio.status.instrument?.identifier
+  ]);
+
   const selectSetlistSong = useCallback(
     async (song: Song) => {
       if (selectingSongRef.current || audio.status.playing || audio.status.transitionActive || audio.status.countInActive) return false;
       selectingSongRef.current = true;
       try {
-      if (audio.hasLoadedAudio) {
+      if (audio.hasPlayableSource) {
         await audio.stop();
       }
       const songMedia = nativeTracksForSong(song);
       if ((songMedia.length || audio.hasLoadedAudio) && !await audio.loadTracks(songMedia)) return false;
+      if (!await syncInstrumentForSong(song)) return false;
       setPreviewPlaying(false);
       setQueuedManualSection(null);
       setSelectedSong(song);
@@ -359,11 +381,20 @@ export function App() {
       return true;
       } finally { selectingSongRef.current = false; }
     },
-    [audio.hasLoadedAudio, audio.stop, audio.loadTracks, audio.status.playing, audio.status.transitionActive, audio.status.countInActive]
+    [
+      audio.hasLoadedAudio,
+      audio.hasPlayableSource,
+      audio.stop,
+      audio.loadTracks,
+      audio.status.playing,
+      audio.status.transitionActive,
+      audio.status.countInActive,
+      syncInstrumentForSong
+    ]
   );
 
   const startPlayback = useCallback(async () => {
-    if (!audio.hasLoadedAudio) {
+    if (!audio.hasPlayableSource) {
       return;
     }
 
@@ -409,7 +440,7 @@ export function App() {
 
     await audio.playPause();
   }, [
-    audio.hasLoadedAudio,
+    audio.hasPlayableSource,
     audio.playPause,
     audio.scheduleTransition,
     audio.seek,
@@ -420,7 +451,7 @@ export function App() {
   ]);
 
   const pausePlayback = useCallback(async () => {
-    if (!audio.hasLoadedAudio) {
+    if (!audio.hasPlayableSource) {
       setPreviewPlaying(false);
       return;
     }
@@ -437,14 +468,14 @@ export function App() {
     }
   }, [
     audio.cancelTransition,
-    audio.hasLoadedAudio,
+    audio.hasPlayableSource,
     audio.playPause,
     audio.status.transitionActive,
     audio.status.playing
   ]);
 
   const stopPlayback = useCallback(async () => {
-    if (audio.hasLoadedAudio) {
+    if (audio.hasPlayableSource) {
       await audio.stop();
     }
     setPreviewPlaying(false);
@@ -452,14 +483,14 @@ export function App() {
     setQueuedManualSection(null);
     currentSectionRef.current = 0;
     setCurrentSection(0);
-  }, [audio.hasLoadedAudio, audio.stop]);
+  }, [audio.hasPlayableSource, audio.stop]);
 
   const launchSection = useCallback(
     async (index: number): Promise<boolean> => {
       const target = selectedSong.sections[index];
       if (!target) return false;
 
-      if (audio.hasLoadedAudio && audio.status.playing) {
+      if (audio.hasPlayableSource && audio.status.playing) {
         if (audio.status.transitionActive) {
           await audio.cancelTransition();
         }
@@ -501,7 +532,7 @@ export function App() {
         return true;
       }
 
-      if (audio.hasLoadedAudio) {
+      if (audio.hasPlayableSource) {
         await audio.seek(sectionStartSeconds(selectedSong, index));
       }
 
@@ -512,7 +543,7 @@ export function App() {
     },
     [
       audio.cancelTransition,
-      audio.hasLoadedAudio,
+      audio.hasPlayableSource,
       audio.scheduleTransition,
       audio.seek,
       audio.status.transitionActive,
@@ -523,7 +554,7 @@ export function App() {
   );
 
   useEffect(() => {
-    if (!audio.hasLoadedAudio || !audio.status.playing) return;
+    if (!audio.hasPlayableSource || !audio.status.playing) return;
     if (audio.status.transitionActive) return;
 
     const index = sectionIndexAtSeconds(
@@ -536,7 +567,7 @@ export function App() {
     setQueuedManualSection((queued) => (queued === index ? null : queued));
     remoteSectionTransitionRef.current.release();
   }, [
-    audio.hasLoadedAudio,
+    audio.hasPlayableSource,
     audio.status.transitionActive,
     audio.status.playing,
     audio.status.positionSeconds,
@@ -544,7 +575,7 @@ export function App() {
   ]);
 
   useEffect(() => {
-    if (!audio.hasLoadedAudio) return;
+    if (!audio.hasPlayableSource) return;
 
     const voiceEnabled =
       selectedSong.guideVoice.outputMode === "voice-and-click" ||
@@ -558,7 +589,7 @@ export function App() {
 
     void audio.updateGuideTimeline(events);
   }, [
-    audio.hasLoadedAudio,
+    audio.hasPlayableSource,
     audio.status.voicePack?.id,
     audio.updateGuideTimeline,
     selectedSong
@@ -571,7 +602,7 @@ export function App() {
 
       switch (message.command) {
         case "transport.play":
-          if (!audio.hasLoadedAudio) return reject("No audio is loaded for the selected item.");
+          if (!audio.hasPlayableSource) return reject("No playable source is loaded for the selected item.");
           await startPlayback();
           return ok();
 
@@ -778,7 +809,7 @@ export function App() {
       }
     },
     [
-      audio.hasLoadedAudio,
+      audio.hasPlayableSource,
       currentSection,
       launchSection,
       pausePlayback,
@@ -908,6 +939,10 @@ export function App() {
         const loaded = await audio.loadTracks(song ? nativeTracksForSong(song) : []);
         if (!loaded) { setProjectError("Project was not opened: its audio could not be loaded. The current service is unchanged."); return; }
       }
+      if (!await syncInstrumentForSong(song)) {
+        setProjectError("Project was not opened: its software instrument could not be restored. The current service is unchanged.");
+        return;
+      }
       setProject(opened.project);
       setProjectPath(opened.path);
       setSelectedSong(song ?? createServiceSong("Untitled item"));
@@ -923,6 +958,7 @@ export function App() {
     if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) { setProjectError("Stop playback before starting a new service."); return; }
     if ((project.setlist.songs.length || projectPath) && !window.confirm("Create a new service? Save your current service first if you need to keep recent changes.")) return;
     if (audio.hasLoadedAudio && !await audio.loadTracks([])) { setProjectError("Cannot clear the current audio. The service was not changed."); return; }
+    if (!await audio.unloadInstrument()) { setProjectError("Cannot clear the current instrument. The service was not changed."); return; }
     await stopAllPadVoices();
     const blank = createProject("New Service");
     setProject(blank);
@@ -939,6 +975,7 @@ export function App() {
   async function addServiceSong(title: string) {
     if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) { setProjectError("Stop playback before changing the running order."); return false; }
     if (audio.hasLoadedAudio && !await audio.loadTracks([])) { setProjectError("Cannot clear the previous item's audio. Item was not added."); return false; }
+    if (!await audio.unloadInstrument()) { setProjectError("Cannot clear the previous item's instrument. Item was not added."); return false; }
     const song = createServiceSong(title);
     setProject(current => ({ ...current, selectedSongId: song.id, setlist: { ...current.setlist, songs: [...current.setlist.songs, song] }, updatedAt: new Date().toISOString() }));
     setSelectedSong(song); setCurrentSection(0); setQueuedManualSection(null);
@@ -989,6 +1026,10 @@ export function App() {
       const next = selectedSong.id === id ? (remaining[Math.min(project.setlist.songs.indexOf(item), remaining.length - 1)] ?? remaining[remaining.length - 1]) : selectedSong;
       if (selectedSong.id === id && (audio.hasLoadedAudio || (next && nativeTracksForSong(next).length))) {
         if (!await audio.loadTracks(next ? nativeTracksForSong(next) : [])) { setProjectError("Could not load the next item's audio. The current item was kept."); return false; }
+      }
+      if (selectedSong.id === id && !await syncInstrumentForSong(next)) {
+        setProjectError("Could not restore the next item's software instrument. The current item was kept.");
+        return false;
       }
       setProject(current => ({ ...current, setlist: { ...current.setlist, songs: remaining }, selectedSongId: next?.id, updatedAt: new Date().toISOString() }));
       if (selectedSong.id === id) { setSelectedSong(next ?? createServiceSong("Untitled item")); setCurrentSection(0); setQueuedManualSection(null); }
