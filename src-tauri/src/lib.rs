@@ -42,6 +42,8 @@ pub fn run() {
             audio::audio_stop_pad,
             audio::audio_configure_pad,
             audio::audio_status,
+            audio::audio_list_output_devices,
+            audio::audio_select_output_device,
             audio::audio_load_wav_song,
             audio::audio_load_voice_pack,
             audio::audio_set_guide_timeline,
