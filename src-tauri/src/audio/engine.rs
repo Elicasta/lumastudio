@@ -86,6 +86,15 @@ pub struct AudioBusStatus {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct AudioOutputDeviceInfo {
+    pub name: String,
+    pub sample_rate: u32,
+    pub output_channels: u16,
+    pub is_default: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct AudioEngineStatus {
     pub initialized: bool,
     pub device_name: String,
@@ -113,16 +122,52 @@ pub struct AudioEngineStatus {
 }
 
 impl AudioEngine {
-    pub fn new() -> Result<Self, AudioError> {
+    pub fn output_devices() -> Result<Vec<AudioOutputDeviceInfo>, AudioError> {
         let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or(AudioError::NoOutputDevice)?;
+        let default_name = host.default_output_device().map(|device| device_display_name(&device));
+        let devices = host
+            .output_devices()
+            .map_err(|error| AudioError::Device(error.to_string()))?;
 
-        let device_name = device
-            .description()
-            .map(|description| description.name().to_owned())
-            .unwrap_or_else(|_| device.to_string());
+        let mut result = Vec::new();
+        for device in devices {
+            let name = device_display_name(&device);
+            let supported = match device.default_output_config() {
+                Ok(config) => config,
+                Err(_) => continue,
+            };
+
+            result.push(AudioOutputDeviceInfo {
+                is_default: default_name.as_deref() == Some(name.as_str()),
+                name,
+                sample_rate: supported.sample_rate(),
+                output_channels: supported.channels(),
+            });
+        }
+
+        result.sort_by(|a, b| a.name.cmp(&b.name));
+        result.dedup_by(|a, b| a.name == b.name);
+        Ok(result)
+    }
+
+    pub fn new() -> Result<Self, AudioError> {
+        Self::new_for_device(None)
+    }
+
+    pub fn new_for_device(requested_name: Option<&str>) -> Result<Self, AudioError> {
+        let host = cpal::default_host();
+        let device = match requested_name {
+            Some(requested) => host
+                .output_devices()
+                .map_err(|error| AudioError::Device(error.to_string()))?
+                .find(|device| device_display_name(device) == requested)
+                .ok_or_else(|| AudioError::Device(format!("audio output '{requested}' is not available")))?,
+            None => host
+                .default_output_device()
+                .ok_or(AudioError::NoOutputDevice)?,
+        };
+
+        let device_name = device_display_name(&device);
 
         let supported = device
             .default_output_config()
@@ -955,4 +1000,12 @@ mod pad_engine_tests {
         let state = RealtimeState::new();
         assert_eq!(state.pad_bus.output_pair(), (0, 1));
     }
+}
+
+
+fn device_display_name(device: &cpal::Device) -> String {
+    device
+        .description()
+        .map(|description| description.name().to_owned())
+        .unwrap_or_else(|_| device.to_string())
 }
