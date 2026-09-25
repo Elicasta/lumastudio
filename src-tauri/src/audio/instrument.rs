@@ -48,6 +48,10 @@ impl HostedInstrument {
         &self.plugin
     }
 
+    pub fn open_editor(&self) -> Result<(), String> {
+        self.instance.open_editor()
+    }
+
     pub fn parameters(&self) -> Result<Vec<AudioUnitParameterInfo>, String> {
         self.instance.parameters()
     }
