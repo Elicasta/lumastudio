@@ -40,6 +40,22 @@ mod platform {
     unsafe extern "C" {
         fn luma_au_scan_json() -> *mut c_char;
         fn luma_au_free_string(value: *mut c_char);
+        fn luma_au_create_effect(
+            component_type: u32,
+            component_sub_type: u32,
+            component_manufacturer: u32,
+            sample_rate: f64,
+            max_frames: u32,
+            out_status: *mut i32,
+        ) -> *mut c_void;
+        fn luma_au_render_effect(
+            instance: *mut c_void,
+            frames: u32,
+            input_left: *const f32,
+            input_right: *const f32,
+            output_left: *mut f32,
+            output_right: *mut f32,
+        ) -> i32;
         fn luma_au_create(
             component_type: u32,
             component_sub_type: u32,
@@ -124,6 +140,67 @@ mod platform {
             })?;
 
             Ok(Self { ptr })
+        }
+
+        pub fn create_effect(
+            plugin: &AudioUnitPluginInfo,
+            sample_rate: u32,
+            max_frames: u32,
+        ) -> Result<Self, String> {
+            if plugin.category != "effect" && plugin.category != "midi-effect" {
+                return Err(format!("'{}' is not an effect Audio Unit", plugin.name));
+            }
+
+            let mut status = 0_i32;
+            let ptr = unsafe {
+                luma_au_create_effect(
+                    plugin.component_type,
+                    plugin.component_sub_type,
+                    plugin.component_manufacturer,
+                    sample_rate as f64,
+                    max_frames,
+                    &mut status,
+                )
+            };
+            let ptr = NonNull::new(ptr).ok_or_else(|| {
+                format!(
+                    "Audio Unit effect '{}' could not be instantiated (OSStatus {status})",
+                    plugin.name
+                )
+            })?;
+            Ok(Self { ptr })
+        }
+
+        pub fn render_effect(
+            &self,
+            frames: usize,
+            input_left: &[f32],
+            input_right: &[f32],
+            output_left: &mut [f32],
+            output_right: &mut [f32],
+        ) -> Result<(), String> {
+            if frames == 0 {
+                return Ok(());
+            }
+            if input_left.len() < frames
+                || input_right.len() < frames
+                || output_left.len() < frames
+                || output_right.len() < frames
+            {
+                return Err("Audio Unit effect buffers are too small".into());
+            }
+
+            let result = unsafe {
+                luma_au_render_effect(
+                    self.ptr.as_ptr(),
+                    frames as u32,
+                    input_left.as_ptr(),
+                    input_right.as_ptr(),
+                    output_left.as_mut_ptr(),
+                    output_right.as_mut_ptr(),
+                )
+            };
+            os_status(result, "render effect")
         }
 
         pub fn send_midi(&self, bytes: &[u8], sample_offset: u32) -> Result<(), String> {
@@ -252,6 +329,25 @@ mod platform {
             _max_frames: u32,
         ) -> Result<Self, String> {
             Err("Audio Unit instruments are available only on macOS".into())
+        }
+
+        pub fn create_effect(
+            _plugin: &AudioUnitPluginInfo,
+            _sample_rate: u32,
+            _max_frames: u32,
+        ) -> Result<Self, String> {
+            Err("Audio Unit effects are available only on macOS".into())
+        }
+
+        pub fn render_effect(
+            &self,
+            _frames: usize,
+            _input_left: &[f32],
+            _input_right: &[f32],
+            _output_left: &mut [f32],
+            _output_right: &mut [f32],
+        ) -> Result<(), String> {
+            Err("Audio Unit effects are available only on macOS".into())
         }
 
         pub fn send_midi(&self, _bytes: &[u8], _sample_offset: u32) -> Result<(), String> {
