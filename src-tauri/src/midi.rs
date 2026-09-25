@@ -29,6 +29,7 @@ pub struct MidiService {
     output_connection: Mutex<Option<MidiOutputConnection>>,
     input_connection: Mutex<Option<MidiInputConnection<()>>>,
     captured: Arc<Mutex<VecDeque<MidiCapturedMessage>>>,
+    recording: Arc<Mutex<Option<MidiRecording>>>,
     live_midi: LiveMidiQueue,
 }
 
@@ -38,6 +39,7 @@ impl MidiService {
             output_connection: Mutex::new(None),
             input_connection: Mutex::new(None),
             captured: Arc::new(Mutex::new(VecDeque::with_capacity(1024))),
+            recording: Arc::new(Mutex::new(None)),
             live_midi,
         }
     }
@@ -66,6 +68,19 @@ pub struct MidiDeviceSnapshot {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MidiCapturedMessage {
+    pub timestamp_micros: u64,
+    pub bytes: Vec<u8>,
+}
+
+#[derive(Debug)]
+struct MidiRecording {
+    started: Instant,
+    events: Vec<MidiRecordedMessage>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MidiRecordedMessage {
     pub timestamp_micros: u64,
     pub bytes: Vec<u8>,
 }
@@ -198,6 +213,7 @@ pub fn midi_connect_input(index: usize, service: State<MidiService>) -> Result<S
     while service.live_midi.pop().is_some() {}
 
     let captured = Arc::clone(&service.captured);
+    let recording = Arc::clone(&service.recording);
     let live_midi = Arc::clone(&service.live_midi);
     let started = Instant::now();
     let connection = midi
@@ -221,6 +237,17 @@ pub fn midi_connect_input(index: usize, service: State<MidiService>) -> Result<S
                         timestamp_micros: started.elapsed().as_micros() as u64,
                         bytes: bytes.to_vec(),
                     });
+                }
+
+                if let Ok(mut guard) = recording.lock() {
+                    if let Some(session) = guard.as_mut() {
+                        if realtime_message(bytes).is_some() {
+                            session.events.push(MidiRecordedMessage {
+                                timestamp_micros: session.started.elapsed().as_micros() as u64,
+                                bytes: bytes.to_vec(),
+                            });
+                        }
+                    }
                 }
             },
             (),
@@ -276,6 +303,42 @@ pub fn midi_drain_input(
 
     let count = limit.min(queue.len());
     Ok(queue.drain(..count).collect())
+}
+
+#[tauri::command]
+pub fn midi_record_start(service: State<MidiService>) -> Result<(), String> {
+    let mut recording = service
+        .recording
+        .lock()
+        .map_err(|_| "MIDI recording lock poisoned")?;
+    *recording = Some(MidiRecording {
+        started: Instant::now(),
+        events: Vec::with_capacity(2048),
+    });
+    Ok(())
+}
+
+#[tauri::command]
+pub fn midi_record_stop(
+    service: State<MidiService>,
+) -> Result<Vec<MidiRecordedMessage>, String> {
+    let mut recording = service
+        .recording
+        .lock()
+        .map_err(|_| "MIDI recording lock poisoned")?;
+    Ok(recording
+        .take()
+        .map(|session| session.events)
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn midi_record_cancel(service: State<MidiService>) -> Result<(), String> {
+    *service
+        .recording
+        .lock()
+        .map_err(|_| "MIDI recording lock poisoned")? = None;
+    Ok(())
 }
 
 #[tauri::command]
