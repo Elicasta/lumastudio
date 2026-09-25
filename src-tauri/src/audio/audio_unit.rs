@@ -49,6 +49,7 @@ mod platform {
             out_status: *mut i32,
         ) -> *mut c_void;
         fn luma_au_destroy(instance: *mut c_void);
+        fn luma_au_open_editor(instance: *mut c_void) -> i32;
         fn luma_au_send_midi(
             instance: *mut c_void,
             status: u32,
@@ -171,6 +172,11 @@ mod platform {
             os_status(result, "render")
         }
 
+        pub fn open_editor(&self) -> Result<(), String> {
+            let result = unsafe { luma_au_open_editor(self.ptr.as_ptr()) };
+            os_status(result, "open custom editor")
+        }
+
         pub fn parameters(&self) -> Result<Vec<AudioUnitParameterInfo>, String> {
             let raw = unsafe { luma_au_parameters_json(self.ptr.as_ptr()) };
             if raw.is_null() {
@@ -259,6 +265,10 @@ mod platform {
             _right: &mut [f32],
         ) -> Result<(), String> {
             Err("Audio Unit instruments are available only on macOS".into())
+        }
+
+        pub fn open_editor(&self) -> Result<(), String> {
+            Err("Audio Unit custom editors are available only on macOS".into())
         }
 
         pub fn parameters(&self) -> Result<Vec<AudioUnitParameterInfo>, String> {
