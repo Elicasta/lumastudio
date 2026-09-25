@@ -4,8 +4,11 @@ import { buildMidiClipFromRecording } from "../domain/midiRecording";
 import type { PluginInstance, Song, Track } from "../domain/types";
 import {
   cancelMidiRecording,
+  connectMidiInput,
+  scanMidiDevices,
   startMidiRecording,
-  stopMidiRecording
+  stopMidiRecording,
+  type MidiPort
 } from "../services/midi";
 import {
   getAudioUnitParameters,
@@ -42,6 +45,8 @@ export function TrackInspector({
   const [selectedPluginId, setSelectedPluginId] = useState("");
   const [busy, setBusy] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [midiInputs, setMidiInputs] = useState<MidiPort[]>([]);
+  const [connectedMidiInput, setConnectedMidiInput] = useState("");
   const [error, setError] = useState("");
   const recordStartSeconds = useRef(0);
   const startedTransport = useRef(false);
@@ -110,13 +115,27 @@ export function TrackInspector({
     setBusy(true);
     setError("");
     try {
-      const found = await scanAudioUnits();
+      const [found, midi] = await Promise.all([
+        scanAudioUnits(),
+        scanMidiDevices()
+      ]);
       setPlugins(found);
+      setMidiInputs(midi.inputs);
       if (!selectedPluginId) {
         setSelectedPluginId(
           found.find((plugin) => plugin.category === "instrument")?.identifier ??
             ""
         );
+      }
+
+      if (track.midiInputName && track.midiInputName !== connectedMidiInput) {
+        const savedInput = midi.inputs.find(
+          (input) => input.name === track.midiInputName
+        );
+        if (savedInput) {
+          const name = await connectMidiInput(savedInput.index);
+          setConnectedMidiInput(name);
+        }
       }
     } catch (cause) {
       setError(messageOf(cause));
@@ -281,6 +300,23 @@ export function TrackInspector({
     if (recording) return;
     setError("");
     try {
+      if (!track.midiInputName) {
+        throw new Error("Choose a MIDI input for this track before recording.");
+      }
+
+      if (connectedMidiInput !== track.midiInputName) {
+        const port = midiInputs.find(
+          (input) => input.name === track.midiInputName
+        );
+        if (!port) {
+          throw new Error(
+            "The saved MIDI input is not currently available. Rescan MIDI devices."
+          );
+        }
+        const name = await connectMidiInput(port.index);
+        setConnectedMidiInput(name);
+      }
+
       recordStartSeconds.current = Math.max(
         0,
         audio.status.positionSeconds ?? 0
@@ -516,6 +552,59 @@ export function TrackInspector({
 
       {tab === "midi" && (
         <div className="midi-track-inspector">
+          <div className="midi-input-card">
+            <small>MIDI INPUT</small>
+            <h3>{track.midiInputName ?? "Choose Input"}</h3>
+            <select
+              value={
+                midiInputs.find((input) => input.name === track.midiInputName)
+                  ?.index ?? ""
+              }
+              onChange={(event) => {
+                const port = midiInputs.find(
+                  (input) => input.index === Number(event.currentTarget.value)
+                );
+                if (!port) return;
+                void connectMidiInput(port.index)
+                  .then((name) => {
+                    setConnectedMidiInput(name);
+                    updateTrack((current) => ({
+                      ...current,
+                      midiInputName: name
+                    }));
+                  })
+                  .catch((cause) => setError(messageOf(cause)));
+              }}
+            >
+              <option value="">Select MIDI input…</option>
+              {midiInputs.map((input) => (
+                <option key={input.index + ":" + input.name} value={input.index}>
+                  {input.name}
+                </option>
+              ))}
+            </select>
+            <div className="midi-input-status">
+              <span className={
+                track.midiInputName &&
+                connectedMidiInput === track.midiInputName
+                  ? "ready"
+                  : "muted"
+              }>
+                {track.midiInputName &&
+                connectedMidiInput === track.midiInputName
+                  ? "● Listening"
+                  : "Not connected"}
+              </span>
+              <button disabled={busy} onClick={() => void scan()}>
+                Rescan
+              </button>
+            </div>
+            <p>
+              Use the MONTAGE keyboard port or any connected controller. Input
+              monitoring feeds the hosted instrument even while transport is
+              stopped.
+            </p>
+          </div>
           <div className="midi-record-card">
             <small>MIDI RECORDING</small>
             <h3>{recording ? "Recording…" : "Ready"}</h3>
@@ -527,7 +616,7 @@ export function TrackInspector({
               {!recording ? (
                 <button
                   className="record-button"
-                  disabled={busy || !active}
+                  disabled={busy || !active || !track.midiInputName}
                   onClick={() => void startRecording()}
                 >
                   ● Record MIDI
