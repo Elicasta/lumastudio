@@ -85,6 +85,12 @@ import { cueIdsBeforePosition, duePresentationCues } from "../domain/presentatio
 import { useProPresenter } from "../hooks/useProPresenter";
 import type { PlanningCenterPlanImport } from "../services/planningCenter";
 import { normalizeProPresenterName } from "../services/propresenter";
+import {
+  activateSongInstrument,
+  captureActiveInstrumentState,
+  songSoftwareInstrumentTrack,
+  syncActiveInstrumentTimeline
+} from "../services/instrumentRuntime";
 
 const workspaceNav: Array<{ page: Workspace; label: string; icon: typeof Music2 }> = [
   { page: "import", label: "Import", icon: Upload },
@@ -135,6 +141,8 @@ export function App() {
   const [liveLayout, setLiveLayout] = useState<"session"|"performance">("session");
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const selectingSongRef = useRef(false);
+  const instrumentRuntimeSongRef = useRef("");
+  const instrumentTimelineFingerprintRef = useRef("");
   const audio = useAudioEngine();
   const lumarig = useLumaRig();
   const [remoteLightingBlackout, setRemoteLightingBlackout] = useState(false);
@@ -177,6 +185,76 @@ export function App() {
     } catch (error) { setMediaCheck({missing: [], checked: 0, error: `File preflight failed: ${String(error)}`}); }
   }, [mediaPaths]);
   useEffect(() => { if (page === "show" || page === "live") void checkMedia(); }, [page, checkMedia]);
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    if (instrumentRuntimeSongRef.current === selectedSong.id) return;
+    if (audio.status.playing || audio.status.transitionActive) return;
+
+    instrumentRuntimeSongRef.current = selectedSong.id;
+    instrumentTimelineFingerprintRef.current = "";
+
+    let cancelled = false;
+    void activateSongInstrument(selectedSong)
+      .then(async (result) => {
+        if (cancelled) return;
+        await audio.refresh();
+        if (result.warning) setProjectError(result.warning);
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setProjectError("Software instrument could not be restored: " + String(cause));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedSong.id,
+    audio.status.playing,
+    audio.status.transitionActive,
+    audio.refresh
+  ]);
+
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    const activeIdentifier = audio.status.instrument?.identifier;
+    if (!activeIdentifier) return;
+
+    const track = songSoftwareInstrumentTrack(selectedSong);
+    if (
+      !track ||
+      track.instrument?.mode !== "plugin" ||
+      track.instrument.plugin.plugin.identifier !== activeIdentifier
+    ) {
+      return;
+    }
+
+    const fingerprint = JSON.stringify({
+      songId: selectedSong.id,
+      bpm: selectedSong.bpm,
+      meter: selectedSong.meter,
+      downbeatSeconds: selectedSong.downbeatSeconds,
+      sections: selectedSong.sections.map((section) => ({
+        id: section.id,
+        startBar: section.startBar,
+        lengthBars: section.lengthBars,
+        tempoOverride: section.tempoOverride,
+        meterOverride: section.meterOverride
+      })),
+      clips: track.midiClips ?? []
+    });
+    if (fingerprint === instrumentTimelineFingerprintRef.current) return;
+
+    instrumentTimelineFingerprintRef.current = fingerprint;
+    void syncActiveInstrumentTimeline(selectedSong, activeIdentifier)
+      .then(() => audio.refresh())
+      .catch((cause) => {
+        instrumentTimelineFingerprintRef.current = "";
+        setProjectError("MIDI instrument timeline could not be synchronized: " + String(cause));
+      });
+  }, [selectedSong, audio.status.instrument?.identifier, audio.refresh]);
+
   const integrationSettings = project.integrations ?? defaultIntegrationSettings();
   const proPresenter = useProPresenter(integrationSettings.propresenter, selectedSong, currentSection);
   const lastDispatchedSectionRef = useRef<string | null>(null);
@@ -922,10 +1000,32 @@ export function App() {
 
   async function saveCurrentProject(saveAs = false) {
     try {
-      const snapshot = { ...project, setlist: { ...project.setlist, songs: project.setlist.songs.map(song => song.id === selectedSong.id ? selectedSong : song) } };
-      const path = await saveProject(snapshot, saveAs ? undefined : projectPath);
-      if (path) { setProjectPath(path); setProjectError(""); }
-    } catch (error) { setProjectError(String(error)); }
+      const songForSave = await captureActiveInstrumentState(
+        selectedSong,
+        audio.status.instrument?.identifier
+      );
+      if (songForSave !== selectedSong) setSelectedSong(songForSave);
+
+      const snapshot = {
+        ...project,
+        setlist: {
+          ...project.setlist,
+          songs: project.setlist.songs.map((song) =>
+            song.id === songForSave.id ? songForSave : song
+          )
+        }
+      };
+      const path = await saveProject(
+        snapshot,
+        saveAs ? undefined : projectPath
+      );
+      if (path) {
+        setProjectPath(path);
+        setProjectError("");
+      }
+    } catch (error) {
+      setProjectError(String(error));
+    }
   }
 
   async function openStudioProject() {
