@@ -213,6 +213,10 @@ impl AudioService {
         })?
     }
 
+    pub fn open_instrument_editor(&self) -> Result<(), AudioError> {
+        self.with_engine(AudioEngine::open_instrument_editor)?
+    }
+
     pub fn instrument_parameters(&self) -> Result<Vec<AudioUnitParameterInfo>, AudioError> {
         self.with_engine(AudioEngine::instrument_parameters)?
     }
