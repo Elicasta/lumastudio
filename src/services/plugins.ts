@@ -78,3 +78,18 @@ export async function testInstrumentNote(
     void sendInstrumentMidi([0x80 | safeChannel, safeNote, 0]);
   }, Math.max(20, durationMs));
 }
+
+
+export async function setInstrumentTimeline(
+  events: Array<{ atSeconds: number; bytes: number[] }>,
+  durationSeconds: number
+): Promise<NativeAudioStatus> {
+  return invoke<NativeAudioStatus>("audio_instrument_set_timeline", {
+    events,
+    durationSeconds
+  });
+}
+
+export async function clearInstrumentTimeline(): Promise<NativeAudioStatus> {
+  return invoke<NativeAudioStatus>("audio_instrument_clear_timeline");
+}
