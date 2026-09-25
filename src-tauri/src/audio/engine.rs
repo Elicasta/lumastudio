@@ -17,6 +17,7 @@ use crate::midi::{new_live_midi_queue, LiveMidiQueue, MidiRealtimeMessage};
 use super::{
     audio_unit::{AudioUnitParameterInfo, AudioUnitPluginInfo},
     bus::BusControl,
+    effect::{HostedEffect, InstrumentEffectChain},
     error::AudioError,
     guide::{
         prepare_timeline, prepare_transition, GuideRenderer, GuideSchedule,
@@ -47,6 +48,7 @@ pub struct RealtimeState {
     pub pad_bus: BusControl,
     pub pads: Vec<PadVoice>,
     pub instrument: ArcSwapOption<HostedInstrument>,
+    pub instrument_effects: ArcSwap<InstrumentEffectChain>,
     pub instrument_timeline: ArcSwap<InstrumentMidiSchedule>,
     pub instrument_timeline_duration: AtomicU64,
     pub live_midi: LiveMidiQueue,
@@ -75,6 +77,7 @@ impl RealtimeState {
             pad_bus: BusControl::new(0.0),
             pads: (0..16).map(|_| PadVoice::new()).collect(),
             instrument: ArcSwapOption::from(None),
+            instrument_effects: ArcSwap::from_pointee(InstrumentEffectChain::empty()),
             instrument_timeline: ArcSwap::from_pointee(InstrumentMidiSchedule::empty()),
             instrument_timeline_duration: AtomicU64::new(0),
             live_midi,
@@ -132,6 +135,8 @@ pub struct AudioEngineStatus {
     pub voice_pack: Option<VoicePackInfo>,
     pub instrument: Option<AudioUnitPluginInfo>,
     pub instrument_render_error: bool,
+    pub instrument_effects: Vec<AudioUnitPluginInfo>,
+    pub instrument_effect_render_error: bool,
     pub music_bus: AudioBusStatus,
     pub click_bus: AudioBusStatus,
     pub guide_bus: AudioBusStatus,
@@ -272,6 +277,9 @@ impl AudioEngine {
         }
         self.realtime.instrument.store(None);
         self.realtime
+            .instrument_effects
+            .store(Arc::new(InstrumentEffectChain::empty()));
+        self.realtime
             .instrument_timeline
             .store(Arc::new(InstrumentMidiSchedule::empty()));
         self.realtime
@@ -346,6 +354,80 @@ impl AudioEngine {
             let _ = self.realtime.live_midi.push(message);
         }
         Ok(())
+    }
+
+    pub fn set_instrument_effects(
+        &self,
+        effects: Vec<(AudioUnitPluginInfo, bool, Option<String>)>,
+    ) -> Result<(), AudioError> {
+        if self.realtime.transport.is_playing() || self.realtime.transition.active() {
+            return Err(AudioError::Plugin(
+                "stop playback before changing software-instrument effects".into(),
+            ));
+        }
+
+        let mut hosted = Vec::with_capacity(effects.len());
+        for (plugin, enabled, state) in effects {
+            hosted.push(
+                HostedEffect::new(
+                    plugin,
+                    self.sample_rate,
+                    4096,
+                    enabled,
+                    state.as_deref(),
+                )
+                .map_err(AudioError::Plugin)?,
+            );
+        }
+
+        self.realtime
+            .instrument_effects
+            .store(Arc::new(InstrumentEffectChain { effects: hosted }));
+        Ok(())
+    }
+
+    pub fn instrument_effect_parameters(
+        &self,
+        index: usize,
+    ) -> Result<Vec<AudioUnitParameterInfo>, AudioError> {
+        let chain = self.realtime.instrument_effects.load_full();
+        let effect = chain
+            .effects
+            .get(index)
+            .ok_or_else(|| AudioError::Plugin("instrument effect was not found".into()))?;
+        effect.parameters().map_err(AudioError::Plugin)
+    }
+
+    pub fn set_instrument_effect_parameter(
+        &self,
+        index: usize,
+        id: u32,
+        value: f32,
+    ) -> Result<(), AudioError> {
+        let chain = self.realtime.instrument_effects.load_full();
+        let effect = chain
+            .effects
+            .get(index)
+            .ok_or_else(|| AudioError::Plugin("instrument effect was not found".into()))?;
+        effect.set_parameter(id, value).map_err(AudioError::Plugin)
+    }
+
+    pub fn save_instrument_effect_state(&self, index: usize) -> Result<String, AudioError> {
+        let chain = self.realtime.instrument_effects.load_full();
+        let effect = chain
+            .effects
+            .get(index)
+            .ok_or_else(|| AudioError::Plugin("instrument effect was not found".into()))?;
+        effect.save_state().map_err(AudioError::Plugin)
+    }
+
+    pub fn open_instrument_effect_editor(&self, index: usize) -> Result<(), AudioError> {
+        let chain = self.realtime.instrument_effects.load_full();
+        let effect = chain
+            .effects
+            .get(index)
+            .ok_or_else(|| AudioError::Plugin("instrument effect was not found".into()))?;
+        effect.open_editor().map_err(AudioError::Plugin)
     }
 
     pub fn set_instrument_timeline(
@@ -701,6 +783,7 @@ impl AudioEngine {
 
         let voice_pack = self.realtime.voice_pack.load();
         let instrument = self.realtime.instrument.load_full();
+        let instrument_effects = self.realtime.instrument_effects.load_full();
 
         let instrument_duration = self
             .realtime
@@ -731,6 +814,12 @@ impl AudioEngine {
             instrument_render_error: instrument
                 .as_ref()
                 .is_some_and(|instrument| instrument.has_render_error()),
+            instrument_effects: instrument_effects
+                .effects
+                .iter()
+                .map(|effect| effect.plugin().clone())
+                .collect(),
+            instrument_effect_render_error: instrument_effects.any_render_error(),
             music_bus: AudioBusStatus {
                 gain_db: self.realtime.music_bus.gain_db(),
                 muted: self.realtime.music_bus.muted(),
@@ -825,6 +914,7 @@ where
     let duration_frames = mix.duration_frames.max(instrument_duration);
     let pads_active = realtime.pads.iter().any(|voice| voice.playing.load(Ordering::Acquire));
     let instrument = realtime.instrument.load_full();
+    let instrument_effects = realtime.instrument_effects.load_full();
     let instrument_active = instrument.is_some();
     if mix.duration_frames == 0 && !pads_active && !instrument_active {
         realtime.transition.cancel();
@@ -868,6 +958,24 @@ where
             &mut instrument_right,
             &realtime.live_midi,
         );
+
+        if !instrument_effects.effects.is_empty() {
+            let mut effect_left = [0.0_f32; MAX_INSTRUMENT_RENDER_FRAMES];
+            let mut effect_right = [0.0_f32; MAX_INSTRUMENT_RENDER_FRAMES];
+            for effect in &instrument_effects.effects {
+                effect.process(
+                    instrument_frames,
+                    &instrument_left,
+                    &instrument_right,
+                    &mut effect_left,
+                    &mut effect_right,
+                );
+                instrument_left[..instrument_frames]
+                    .copy_from_slice(&effect_left[..instrument_frames]);
+                instrument_right[..instrument_frames]
+                    .copy_from_slice(&effect_right[..instrument_frames]);
+            }
+        }
     } else {
         while realtime.live_midi.pop().is_some() {}
     }
