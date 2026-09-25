@@ -229,17 +229,18 @@ int32_t luma_au_render(
     }
     if (frames > instance->maxFrames) return kAudio_ParamError;
 
-    AudioBufferList *list =
-        (AudioBufferList *)calloc(1, offsetof(AudioBufferList, mBuffers) + sizeof(AudioBuffer) * 2);
-    if (!list) return memFullErr;
+    struct {
+        UInt32 mNumberBuffers;
+        AudioBuffer mBuffers[2];
+    } buffers = {0};
 
-    list->mNumberBuffers = 2;
-    list->mBuffers[0].mNumberChannels = 1;
-    list->mBuffers[0].mDataByteSize = frames * sizeof(Float32);
-    list->mBuffers[0].mData = left;
-    list->mBuffers[1].mNumberChannels = 1;
-    list->mBuffers[1].mDataByteSize = frames * sizeof(Float32);
-    list->mBuffers[1].mData = right;
+    buffers.mNumberBuffers = 2;
+    buffers.mBuffers[0].mNumberChannels = 1;
+    buffers.mBuffers[0].mDataByteSize = frames * sizeof(Float32);
+    buffers.mBuffers[0].mData = left;
+    buffers.mBuffers[1].mNumberChannels = 1;
+    buffers.mBuffers[1].mDataByteSize = frames * sizeof(Float32);
+    buffers.mBuffers[1].mData = right;
 
     memset(left, 0, frames * sizeof(Float32));
     memset(right, 0, frames * sizeof(Float32));
@@ -255,10 +256,8 @@ int32_t luma_au_render(
         &timestamp,
         0,
         frames,
-        list
+        (AudioBufferList *)&buffers
     );
-
-    free(list);
     if (status == noErr) {
         instance->sampleTime += frames;
     }
