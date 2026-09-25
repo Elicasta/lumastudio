@@ -15,6 +15,11 @@ export interface MidiCapturedMessage {
   bytes: number[];
 }
 
+export interface MidiRecordedMessage {
+  timestampMicros: number;
+  bytes: number[];
+}
+
 export const scanMidiDevices = () =>
   invoke<MidiDeviceSnapshot>("midi_scan");
 
@@ -38,6 +43,15 @@ export const disconnectMidiOutput = () =>
 
 export const drainMidiInput = (maxMessages = 1024) =>
   invoke<MidiCapturedMessage[]>("midi_drain_input", { maxMessages });
+
+export const startMidiRecording = () =>
+  invoke<void>("midi_record_start");
+
+export const stopMidiRecording = () =>
+  invoke<MidiRecordedMessage[]>("midi_record_stop");
+
+export const cancelMidiRecording = () =>
+  invoke<void>("midi_record_cancel");
 
 export const sendMidi = (bytes: number[]) =>
   invoke<void>("midi_send", { bytes });
