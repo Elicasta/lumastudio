@@ -2,7 +2,10 @@ use std::{path::Path, sync::Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use crate::midi::{new_live_midi_queue, LiveMidiQueue};
+
 use super::{
+    audio_unit::{AudioUnitParameterInfo, AudioUnitPluginInfo},
     engine::{AudioEngine, AudioEngineStatus, AudioOutputDeviceInfo},
     error::AudioError,
     guide::{
@@ -42,19 +45,25 @@ pub struct AudioService {
     engine: Mutex<Option<AudioEngine>>,
     last_error: Mutex<Option<String>>,
     preferred_device: Mutex<Option<String>>,
+    live_midi: LiveMidiQueue,
 }
 
 impl Default for AudioService {
     fn default() -> Self {
-        Self {
-            engine: Mutex::new(None),
-            last_error: Mutex::new(None),
-            preferred_device: Mutex::new(None),
-        }
+        Self::new(new_live_midi_queue())
     }
 }
 
 impl AudioService {
+    pub fn new(live_midi: LiveMidiQueue) -> Self {
+        Self {
+            engine: Mutex::new(None),
+            last_error: Mutex::new(None),
+            preferred_device: Mutex::new(None),
+            live_midi,
+        }
+    }
+
     pub fn initialize(&self) -> Result<AudioEngineStatus, AudioError> {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
 
@@ -94,7 +103,23 @@ impl AudioService {
             }
         }
 
-        let engine = AudioEngine::new_for_device(Some(name))?;
+        let saved_instrument = guard.as_ref().and_then(|engine| {
+            let status = engine.status();
+            status.instrument.and_then(|plugin| {
+                engine
+                    .save_instrument_state()
+                    .ok()
+                    .map(|state| (plugin, state))
+            })
+        });
+
+        let engine = AudioEngine::new_for_device_with_midi(
+            Some(name),
+            self.live_midi.clone(),
+        )?;
+        if let Some((plugin, state)) = saved_instrument {
+            engine.load_instrument(plugin, Some(&state))?;
+        }
         let status = engine.status();
         *guard = Some(engine);
         *self
@@ -156,6 +181,44 @@ impl AudioService {
 
         engine.replace_song(SongMix::new(tracks));
         Ok(engine.status())
+    }
+
+    pub fn load_instrument(
+        &self,
+        plugin: AudioUnitPluginInfo,
+        state: Option<&str>,
+    ) -> Result<AudioEngineStatus, AudioError> {
+        let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
+        if guard.is_none() {
+            *guard = Some(self.create_engine()?);
+        }
+
+        let engine = guard.as_ref().expect("initialized above");
+        engine.load_instrument(plugin, state)?;
+        Ok(engine.status())
+    }
+
+    pub fn unload_instrument(&self) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.unload_instrument()?;
+            Ok(engine.status())
+        })?
+    }
+
+    pub fn instrument_parameters(&self) -> Result<Vec<AudioUnitParameterInfo>, AudioError> {
+        self.with_engine(AudioEngine::instrument_parameters)?
+    }
+
+    pub fn set_instrument_parameter(&self, id: u32, value: f32) -> Result<(), AudioError> {
+        self.with_engine(|engine| engine.set_instrument_parameter(id, value))?
+    }
+
+    pub fn save_instrument_state(&self) -> Result<String, AudioError> {
+        self.with_engine(AudioEngine::save_instrument_state)?
+    }
+
+    pub fn send_instrument_midi(&self, bytes: &[u8]) -> Result<(), AudioError> {
+        self.with_engine(|engine| engine.send_instrument_midi(bytes))?
     }
 
     pub fn load_pad(&self, index: usize, path: &str, looped: bool, gain_db: f32, width: f32, octave: i32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> {
@@ -325,7 +388,10 @@ impl AudioService {
             .lock()
             .expect("audio device mutex poisoned")
             .clone();
-        AudioEngine::new_for_device(preferred.as_deref())
+        AudioEngine::new_for_device_with_midi(
+            preferred.as_deref(),
+            self.live_midi.clone(),
+        )
     }
 
     fn with_engine<T>(&self, operation: impl FnOnce(&AudioEngine) -> T) -> Result<T, AudioError> {
