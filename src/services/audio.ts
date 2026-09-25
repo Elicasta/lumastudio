@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { TrackKind } from "../domain/types";
+import type { AudioUnitPluginInfo } from "./plugins";
 
 export interface NativeAudioOutputDevice {
   name: string;
@@ -56,6 +57,8 @@ export interface NativeAudioStatus {
   countInBar?: number;
   countInBars?: number;
   voicePack?: NativeVoicePackInfo | null;
+  instrument?: AudioUnitPluginInfo | null;
+  instrumentRenderError?: boolean;
   musicBus?: NativeAudioBusStatus;
   clickBus?: NativeAudioBusStatus;
   guideBus?: NativeAudioBusStatus;
