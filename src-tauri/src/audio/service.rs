@@ -11,6 +11,7 @@ use super::{
     guide::{
         load_voice_pack, GuideTimelineEventRequest, GuideTransitionEventRequest,
     },
+    instrument::InstrumentMidiEvent,
     media::{load_wav_track, WavTrackRequest},
     model::{SongMix, TrackBus},
     pad::PadSample,
@@ -28,6 +29,13 @@ pub struct AudioTrackRequest {
     pub start_seconds: f64,
     #[serde(default = "default_track_bus")]
     pub bus: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstrumentMidiEventRequest {
+    pub at_seconds: f64,
+    pub bytes: Vec<u8>,
 }
 
 fn default_track_bus() -> String {
@@ -219,6 +227,57 @@ impl AudioService {
 
     pub fn send_instrument_midi(&self, bytes: &[u8]) -> Result<(), AudioError> {
         self.with_engine(|engine| engine.send_instrument_midi(bytes))?
+    }
+
+    pub fn set_instrument_timeline(
+        &self,
+        events: Vec<InstrumentMidiEventRequest>,
+        duration_seconds: f64,
+    ) -> Result<AudioEngineStatus, AudioError> {
+        let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
+        if guard.is_none() {
+            *guard = Some(self.create_engine()?);
+        }
+        let engine = guard.as_ref().expect("initialized above");
+        let sample_rate = engine.sample_rate();
+
+        let mut prepared = Vec::with_capacity(events.len());
+        for event in events {
+            if !event.at_seconds.is_finite() || event.at_seconds < 0.0 {
+                return Err(AudioError::Plugin("MIDI timeline contains an invalid time".into()));
+            }
+            let status = *event
+                .bytes
+                .first()
+                .ok_or_else(|| AudioError::Plugin("MIDI timeline contains an empty message".into()))?;
+            let family = status & 0xf0;
+            let len = if family == 0xc0 || family == 0xd0 { 2 } else { 3 };
+            if !(0x80..=0xe0).contains(&family) || event.bytes.len() < len {
+                return Err(AudioError::Plugin(
+                    "MIDI timeline accepts channel voice messages only".into(),
+                ));
+            }
+            prepared.push(InstrumentMidiEvent {
+                frame: (event.at_seconds * sample_rate as f64).round() as u64,
+                bytes: [
+                    status,
+                    event.bytes.get(1).copied().unwrap_or(0) & 0x7f,
+                    event.bytes.get(2).copied().unwrap_or(0) & 0x7f,
+                ],
+                len: len as u8,
+            });
+        }
+
+        prepared.sort_by_key(|event| event.frame);
+        engine.set_instrument_timeline(prepared, duration_seconds);
+        Ok(engine.status())
+    }
+
+    pub fn clear_instrument_timeline(&self) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.clear_instrument_timeline();
+            engine.status()
+        })
     }
 
     pub fn load_pad(&self, index: usize, path: &str, looped: bool, gain_db: f32, width: f32, octave: i32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> {
