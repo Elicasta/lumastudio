@@ -10,6 +10,8 @@ import {
   chooseVoicePackDirectory,
   chooseAudioTracks,
   getAudioStatus,
+  listAudioOutputDevices,
+  selectAudioOutputDevice,
   isNativeApp,
   loadVoicePack,
   loadAudioSong,
@@ -20,6 +22,7 @@ import {
   setNativeTrackGain,
   setNativeTrackMuted,
   setNativeTrackSolo,
+  type NativeAudioOutputDevice,
   type NativeAudioStatus,
   type NativeAudioTrack,
   type NativeGuideTimelineEvent
@@ -43,6 +46,7 @@ type SavedBusSettings = Partial<Record<AudioBusId, SavedBusSetting>>;
 export function useAudioEngine() {
   const [status, setStatus] = useState<NativeAudioStatus>({ initialized: false });
   const [tracks, setTracks] = useState<NativeAudioTrack[]>([]);
+  const [outputDevices, setOutputDevices] = useState<NativeAudioOutputDevice[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +57,19 @@ export function useAudioEngine() {
       setError(messageOf(cause));
     }
   }, []);
+
+  const refreshOutputDevices = useCallback(async () => {
+    try {
+      setOutputDevices(await listAudioOutputDevices());
+    } catch (cause) {
+      setError(messageOf(cause));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    void refreshOutputDevices();
+  }, [refreshOutputDevices]);
 
   useEffect(() => {
     const savedVoicePack = localStorage.getItem(VOICE_PACK_PATH_KEY);
@@ -252,10 +269,31 @@ export function useAudioEngine() {
   return {
     status,
     tracks,
+    outputDevices,
     busy,
     error,
     hasLoadedAudio: (status.loadedTracks ?? 0) > 0,
     refresh,
+    refreshOutputDevices,
+    selectOutputDevice: async (name: string) => {
+      if (busy || status.playing || status.transitionActive) return false;
+      setBusy(true);
+      setError(null);
+      try {
+        let next = await selectAudioOutputDevice(name);
+        if (tracks.length > 0) {
+          next = await loadAudioSong(tracks);
+        }
+        setStatus(next);
+        await refreshOutputDevices();
+        return true;
+      } catch (cause) {
+        setError(messageOf(cause));
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
     chooseAndLoad,
     loadTracks,
     loadPaths,
