@@ -21,6 +21,11 @@ export interface PluginReference {
   vendor?: string;
   format: PluginFormat;
   category: PluginCategory;
+  componentType?: number;
+  componentSubType?: number;
+  componentManufacturer?: number;
+  version?: string;
+  hasCustomView?: boolean;
 }
 
 export interface PluginParameterValue {
@@ -33,6 +38,7 @@ export interface PluginInstance {
   plugin: PluginReference;
   bypassed: boolean;
   presetName?: string;
+  state?: string;
   parameters?: PluginParameterValue[];
 }
 
