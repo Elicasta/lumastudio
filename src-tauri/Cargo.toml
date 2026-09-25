@@ -12,9 +12,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
 png = "0.18"
+cc = "1"
 
 [dependencies]
 arc-swap = "1.7"
+crossbeam-queue = "0.3"
 audioadapter-buffers = "5.1"
 cpal = "0.18.2"
 hound = "3.5"
