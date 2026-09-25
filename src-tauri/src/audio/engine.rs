@@ -23,7 +23,7 @@ use super::{
         GuideTimelineEventRequest, GuideTransitionEventRequest, VoicePack,
         VoicePackInfo,
     },
-    instrument::HostedInstrument,
+    instrument::{HostedInstrument, InstrumentMidiEvent, InstrumentMidiSchedule},
     meter::StereoMeter,
     model::{SongMix, TrackBus},
     pad::{render_pad, PadSample, PadVoice},
@@ -47,6 +47,8 @@ pub struct RealtimeState {
     pub pad_bus: BusControl,
     pub pads: Vec<PadVoice>,
     pub instrument: ArcSwapOption<HostedInstrument>,
+    pub instrument_timeline: ArcSwap<InstrumentMidiSchedule>,
+    pub instrument_timeline_duration: AtomicU64,
     pub live_midi: LiveMidiQueue,
     pub device_error: AtomicBool,
 }
@@ -73,6 +75,8 @@ impl RealtimeState {
             pad_bus: BusControl::new(0.0),
             pads: (0..16).map(|_| PadVoice::new()).collect(),
             instrument: ArcSwapOption::from(None),
+            instrument_timeline: ArcSwap::from_pointee(InstrumentMidiSchedule::empty()),
+            instrument_timeline_duration: AtomicU64::new(0),
             live_midi,
             device_error: AtomicBool::new(false),
         }
@@ -267,6 +271,12 @@ impl AudioEngine {
             instrument.all_notes_off();
         }
         self.realtime.instrument.store(None);
+        self.realtime
+            .instrument_timeline
+            .store(Arc::new(InstrumentMidiSchedule::empty()));
+        self.realtime
+            .instrument_timeline_duration
+            .store(0, Ordering::Release);
         while self.realtime.live_midi.pop().is_some() {}
         Ok(())
     }
@@ -327,6 +337,35 @@ impl AudioEngine {
             let _ = self.realtime.live_midi.push(message);
         }
         Ok(())
+    }
+
+    pub fn set_instrument_timeline(
+        &self,
+        events: Vec<InstrumentMidiEvent>,
+        duration_seconds: f64,
+    ) {
+        let duration_frames = seconds_to_frame(duration_seconds.max(0.0), self.sample_rate);
+        self.realtime
+            .instrument_timeline_duration
+            .store(duration_frames, Ordering::Release);
+        self.realtime
+            .instrument_timeline
+            .store(Arc::new(InstrumentMidiSchedule { events }));
+        if let Some(instrument) = self.realtime.instrument.load_full() {
+            instrument.all_notes_off();
+        }
+    }
+
+    pub fn clear_instrument_timeline(&self) {
+        self.realtime
+            .instrument_timeline_duration
+            .store(0, Ordering::Release);
+        self.realtime
+            .instrument_timeline
+            .store(Arc::new(InstrumentMidiSchedule::empty()));
+        if let Some(instrument) = self.realtime.instrument.load_full() {
+            instrument.all_notes_off();
+        }
     }
 
     pub fn load_pad(&self, index: usize, sample: PadSample) -> Result<(), AudioError> {
@@ -404,11 +443,16 @@ impl AudioEngine {
         self.realtime.transition.cancel();
         let mix = self.realtime.mix.load();
         let has_instrument = self.realtime.instrument.load().is_some();
-        if mix.duration_frames == 0 && !has_instrument {
+        let instrument_duration = self
+            .realtime
+            .instrument_timeline_duration
+            .load(Ordering::Acquire);
+        let duration_frames = mix.duration_frames.max(instrument_duration);
+        if duration_frames == 0 && !has_instrument {
             return;
         }
 
-        if mix.duration_frames > 0 && self.realtime.transport.frame() >= mix.duration_frames {
+        if duration_frames > 0 && self.realtime.transport.frame() >= duration_frames {
             self.realtime.transport.seek_frame(0);
         }
 
@@ -429,14 +473,22 @@ impl AudioEngine {
     pub fn seek_seconds(&self, seconds: f64) {
         self.realtime.transition.cancel();
         let mix = self.realtime.mix.load();
+        let instrument_duration = self
+            .realtime
+            .instrument_timeline_duration
+            .load(Ordering::Acquire);
+        let duration_frames = mix.duration_frames.max(instrument_duration);
         let requested = (seconds.max(0.0) * self.sample_rate as f64).round() as u64;
-        let frame = if mix.duration_frames > 0 {
-            requested.min(mix.duration_frames)
+        let frame = if duration_frames > 0 {
+            requested.min(duration_frames)
         } else if self.realtime.instrument.load().is_some() {
             requested
         } else {
             0
         };
+        if let Some(instrument) = self.realtime.instrument.load_full() {
+            instrument.all_notes_off();
+        }
         self.realtime.transport.seek_frame(frame);
     }
 
@@ -453,12 +505,17 @@ impl AudioEngine {
         guide_events: &[GuideTransitionEventRequest],
     ) -> Result<(), AudioError> {
         let mix = self.realtime.mix.load();
+        let instrument_duration = self
+            .realtime
+            .instrument_timeline_duration
+            .load(Ordering::Acquire);
+        let duration_frames = mix.duration_frames.max(instrument_duration);
         let requested_target = seconds_to_frame(
             target_seconds.max(0.0),
             self.sample_rate,
         );
-        let target_frame = if mix.duration_frames > 0 {
-            requested_target.min(mix.duration_frames)
+        let target_frame = if duration_frames > 0 {
+            requested_target.min(duration_frames)
         } else if self.realtime.instrument.load().is_some() {
             requested_target
         } else {
@@ -636,6 +693,12 @@ impl AudioEngine {
         let voice_pack = self.realtime.voice_pack.load();
         let instrument = self.realtime.instrument.load_full();
 
+        let instrument_duration = self
+            .realtime
+            .instrument_timeline_duration
+            .load(Ordering::Acquire);
+        let duration_frames = mix.duration_frames.max(instrument_duration);
+
         AudioEngineStatus {
             initialized: true,
             device_name: self.device_name.clone(),
@@ -643,7 +706,7 @@ impl AudioEngine {
             output_channels: self.output_channels,
             playing: self.realtime.transport.is_playing(),
             position_seconds: frame as f64 / self.sample_rate as f64,
-            duration_seconds: mix.duration_frames as f64 / self.sample_rate as f64,
+            duration_seconds: duration_frames as f64 / self.sample_rate as f64,
             peak_left,
             peak_right,
             device_error: self.realtime.device_error.load(Ordering::Acquire),
@@ -747,6 +810,10 @@ where
     }
 
     let mix = realtime.mix.load();
+    let instrument_duration = realtime
+        .instrument_timeline_duration
+        .load(Ordering::Acquire);
+    let duration_frames = mix.duration_frames.max(instrument_duration);
     let pads_active = realtime.pads.iter().any(|voice| voice.playing.load(Ordering::Acquire));
     let instrument = realtime.instrument.load_full();
     let instrument_active = instrument.is_some();
@@ -760,6 +827,7 @@ where
 
     let timeline = realtime.guide_timeline.load();
     let transition_guide = realtime.transition_guide.load();
+    let instrument_timeline = realtime.instrument_timeline.load();
     let has_solo = mix.tracks.iter().any(|track| track.control.solo());
     let transition = realtime.transition.snapshot();
     let mut transition_active = transition.active;
@@ -775,6 +843,16 @@ where
     let mut instrument_left = [0.0_f32; MAX_INSTRUMENT_RENDER_FRAMES];
     let mut instrument_right = [0.0_f32; MAX_INSTRUMENT_RENDER_FRAMES];
     if let Some(instrument) = instrument.as_ref() {
+        dispatch_instrument_timeline(
+            instrument,
+            &instrument_timeline,
+            &realtime.transport,
+            playhead,
+            instrument_frames,
+            duration_frames,
+            transition_active,
+            transition,
+        );
         instrument.render(
             instrument_frames,
             &mut instrument_left,
@@ -832,7 +910,7 @@ where
 
         if should_render_song {
             if let Some(timeline_frame) =
-                realtime.transport.normalize_frame(playhead, mix.duration_frames)
+                realtime.transport.normalize_frame(playhead, duration_frames)
             {
                 for track in &mix.tracks {
                     if track.control.muted() || (has_solo && !track.control.solo()) {
@@ -939,6 +1017,97 @@ where
     }
 
     realtime.meter.store_peaks(peak_left, peak_right);
+}
+
+fn dispatch_instrument_timeline(
+    instrument: &HostedInstrument,
+    schedule: &InstrumentMidiSchedule,
+    transport: &Transport,
+    playhead: u64,
+    frames: usize,
+    duration_frames: u64,
+    transition_active: bool,
+    transition: super::transition::TransitionSnapshot,
+) {
+    if frames == 0 || schedule.events.is_empty() {
+        return;
+    }
+
+    let pre_transition_frames = if transition_active {
+        (transition.remaining_frames as usize).min(frames)
+    } else {
+        frames
+    };
+
+    if !transition_active || transition.keep_audio {
+        dispatch_timeline_span(
+            instrument,
+            schedule,
+            transport,
+            playhead,
+            pre_transition_frames,
+            duration_frames,
+            0,
+        );
+    }
+
+    if transition_active && pre_transition_frames < frames {
+        instrument.all_notes_off_at(pre_transition_frames as u32);
+        dispatch_timeline_span(
+            instrument,
+            schedule,
+            transport,
+            transition.target_frame,
+            frames - pre_transition_frames,
+            duration_frames,
+            pre_transition_frames,
+        );
+    }
+}
+
+fn dispatch_timeline_span(
+    instrument: &HostedInstrument,
+    schedule: &InstrumentMidiSchedule,
+    transport: &Transport,
+    start_frame: u64,
+    frames: usize,
+    duration_frames: u64,
+    render_offset: usize,
+) {
+    if frames == 0 {
+        return;
+    }
+
+    let mut remaining = frames;
+    let mut offset = render_offset;
+    let mut cursor = start_frame;
+
+    while remaining > 0 {
+        let Some(normalized) = transport.normalize_frame(cursor, duration_frames) else {
+            instrument.all_notes_off_at(offset.min(u32::MAX as usize) as u32);
+            break;
+        };
+
+        let span = if let Some((_loop_start, loop_end)) = transport.loop_range() {
+            (loop_end.saturating_sub(normalized) as usize).max(1).min(remaining)
+        } else if duration_frames > 0 {
+            (duration_frames.saturating_sub(normalized) as usize)
+                .max(1)
+                .min(remaining)
+        } else {
+            remaining
+        };
+
+        instrument.dispatch_timeline_range(schedule, normalized, span, offset);
+
+        remaining -= span;
+        offset += span;
+        cursor = normalized.saturating_add(span as u64);
+
+        if remaining > 0 {
+            instrument.all_notes_off_at(offset.min(u32::MAX as usize) as u32);
+        }
+    }
 }
 
 fn routed_bus_sample(
