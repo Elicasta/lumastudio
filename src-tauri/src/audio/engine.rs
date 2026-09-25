@@ -281,6 +281,15 @@ impl AudioEngine {
         Ok(())
     }
 
+    pub fn open_instrument_editor(&self) -> Result<(), AudioError> {
+        let instrument = self
+            .realtime
+            .instrument
+            .load_full()
+            .ok_or_else(|| AudioError::Plugin("no software instrument is loaded".into()))?;
+        instrument.open_editor().map_err(AudioError::Plugin)
+    }
+
     pub fn instrument_parameters(&self) -> Result<Vec<AudioUnitParameterInfo>, AudioError> {
         let instrument = self
             .realtime
