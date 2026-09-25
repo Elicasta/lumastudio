@@ -53,6 +53,24 @@ pub fn audio_initialize(service: State<'_, AudioService>) -> Result<Value, Strin
     value(status)
 }
 
+
+#[tauri::command]
+pub fn audio_list_output_devices(service: State<'_, AudioService>) -> Result<Value, String> {
+    value(service.output_devices().map_err(|error| error.to_string())?)
+}
+
+#[tauri::command]
+pub fn audio_select_output_device(
+    name: String,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    value(
+        service
+            .select_output_device(&name)
+            .map_err(|error| error.to_string())?,
+    )
+}
+
 #[tauri::command]
 pub fn audio_status(service: State<'_, AudioService>) -> Value {
     service.status_json()
