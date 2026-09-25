@@ -582,6 +582,7 @@ export function TrackInspector({
                   ?.index ?? ""
               }
               onChange={(event) => {
+                if (!event.currentTarget.value) return;
                 const port = midiInputs.find(
                   (input) => input.index === Number(event.currentTarget.value)
                 );
