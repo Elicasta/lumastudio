@@ -28,6 +28,7 @@ import { TrackInspector } from "../components/TrackInspector";
 import { createProject } from "../domain/project";
 import { createServiceSong, moveServiceItem, reflowSongSections, selectedServiceSong } from "../domain/service";
 import { createSoftwareInstrumentTrack } from "../domain/workstation";
+import { buildInstrumentTimeline } from "../domain/instrumentTimeline";
 import { missingMedia, projectMediaPaths, type MediaFileStatus } from "../domain/preflight";
 import { isNativeApp } from "../services/audio";
 import { openProject, saveProject } from "../services/projectStore";
@@ -420,23 +421,35 @@ export function App() {
   }
 
   const syncInstrumentForSong = useCallback(async (song?: Song) => {
-    const instance = song?.tracks.find(
+    const instrumentTrack = song?.tracks.find(
       (track) =>
         track.sourceType === "instrument" &&
         track.instrument?.mode === "plugin"
-    )?.instrument;
+    );
 
-    if (instance?.mode === "plugin") {
-      if (audio.status.instrument?.identifier === instance.plugin.plugin.identifier) {
-        return true;
-      }
-      return audio.loadInstrument(instance.plugin);
+    const instance =
+      instrumentTrack?.instrument?.mode === "plugin"
+        ? instrumentTrack.instrument.plugin
+        : undefined;
+
+    if (!song || !instrumentTrack || !instance) {
+      return audio.unloadInstrument();
     }
 
-    return audio.unloadInstrument();
+    if (audio.status.instrument?.identifier !== instance.plugin.identifier) {
+      const loaded = await audio.loadInstrument(instance);
+      if (!loaded) return false;
+    }
+
+    const timeline = buildInstrumentTimeline(song, instrumentTrack);
+    return audio.syncInstrumentTimeline(
+      timeline.events,
+      timeline.durationSeconds
+    );
   }, [
     audio.loadInstrument,
     audio.unloadInstrument,
+    audio.syncInstrumentTimeline,
     audio.status.instrument?.identifier
   ]);
 
@@ -1836,11 +1849,19 @@ function Arrangement({
   const totalBars = Math.max(
     ...song.sections.map((section) => section.startBar + section.lengthBars - 1)
   );
+  const existingInstrumentTrack = song.tracks.find(
+    (item) => item.sourceType === "instrument"
+  );
+
   function addInstrumentTrack() {
     if (sectionEditingLocked) return;
-    const track = createSoftwareInstrumentTrack(
-      "Instrument " + (song.tracks.filter((item) => item.sourceType === "instrument").length + 1)
-    );
+
+    if (existingInstrumentTrack) {
+      setSelectedTrackId(existingInstrumentTrack.id);
+      return;
+    }
+
+    const track = createSoftwareInstrumentTrack("Software Instrument");
     onSongChange({ ...song, tracks: [...song.tracks, track] });
     setSelectedTrackId(track.id);
   }
@@ -1984,7 +2005,13 @@ function Arrangement({
           </p>
         </div>
         <div className="head-actions">
-          <button onClick={addInstrumentTrack} disabled={sectionEditingLocked}>+ Instrument</button>
+          <button
+            onClick={addInstrumentTrack}
+            disabled={sectionEditingLocked}
+            title={existingInstrumentTrack ? "Open the current software instrument track" : "Add a software instrument track"}
+          >
+            {existingInstrumentTrack ? "Open Instrument" : "+ Instrument"}
+          </button>
           <button onClick={() => void importAudio()}>Import Audio</button>
           <button onClick={() => { setTitleDraft(song.title); setArtistDraft(song.artist); setBpmDraft(song.bpm); setKeyDraft(song.key); setMeterTopDraft(song.meter[0]); setMeterBottomDraft(song.meter[1]); setEditingTitle(true); }}>Edit details</button>
           <button className="primary" onClick={onSave}>Save Project</button>
