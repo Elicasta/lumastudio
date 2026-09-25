@@ -24,8 +24,10 @@ import {
   WandSparkles
 } from "lucide-react";
 import { SessionView } from "../components/SessionView";
+import { TrackInspector } from "../components/TrackInspector";
 import { createProject } from "../domain/project";
 import { createServiceSong, moveServiceItem, reflowSongSections, selectedServiceSong } from "../domain/service";
+import { createSoftwareInstrumentTrack } from "../domain/workstation";
 import { missingMedia, projectMediaPaths, type MediaFileStatus } from "../domain/preflight";
 import { isNativeApp } from "../services/audio";
 import { openProject, saveProject } from "../services/projectStore";
@@ -1681,12 +1683,27 @@ function Arrangement({
     Math.min(4, Math.max(0, song.sections.length - 1))
   );
   const [nativeDropActive, setNativeDropActive] = useState(false);
+  const [selectedTrackId, setSelectedTrackId] = useState(
+    song.tracks[0]?.id ?? ""
+  );
+  const selectedTrack =
+    song.tracks.find((track) => track.id === selectedTrackId) ??
+    song.tracks[0];
   const selectedSection =
     song.sections[Math.min(selectedSectionIndex, song.sections.length - 1)];
   const sectionEditingLocked = Boolean(audio.status.playing || audio.status.transitionActive || audio.status.countInActive);
   const totalBars = Math.max(
     ...song.sections.map((section) => section.startBar + section.lengthBars - 1)
   );
+  function addInstrumentTrack() {
+    if (sectionEditingLocked) return;
+    const track = createSoftwareInstrumentTrack(
+      "Instrument " + (song.tracks.filter((item) => item.sourceType === "instrument").length + 1)
+    );
+    onSongChange({ ...song, tracks: [...song.tracks, track] });
+    setSelectedTrackId(track.id);
+  }
+
   function addSection() {
     if (sectionEditingLocked || song.sections.length >= 128) return;
     const number = song.sections.length + 1;
@@ -1826,6 +1843,7 @@ function Arrangement({
           </p>
         </div>
         <div className="head-actions">
+          <button onClick={addInstrumentTrack} disabled={sectionEditingLocked}>+ Instrument</button>
           <button onClick={() => void importAudio()}>Import Audio</button>
           <button onClick={() => { setTitleDraft(song.title); setArtistDraft(song.artist); setBpmDraft(song.bpm); setKeyDraft(song.key); setMeterTopDraft(song.meter[0]); setMeterBottomDraft(song.meter[1]); setEditingTitle(true); }}>Edit details</button>
           <button className="primary" onClick={onSave}>Save Project</button>
@@ -2073,7 +2091,11 @@ function Arrangement({
           const acceptsAudio = !["lighting","video","midi"].includes(track.kind);
           const assignedMedia = track.media ? audio.tracks.find((media) => media.id === track.media?.id) : undefined;
           return (
-            <div className="track-lane" key={track.id}>
+            <div
+              className={track.id === selectedTrack?.id ? "track-lane selected-track" : "track-lane"}
+              key={track.id}
+              onClick={() => setSelectedTrackId(track.id)}
+            >
               <div className="track-label">
                 <button title="Solo this loaded track" aria-label={`Solo ${track.name}`} className={track.solo?"active":""} disabled={!track.media || !assignedMedia} onClick={() => void toggleTrack(track,"solo")}>S</button>
                 <button title="Mute this loaded track" aria-label={`Mute ${track.name}`} className={track.muted?"active":""} disabled={!track.media || !assignedMedia} onClick={() => void toggleTrack(track,"muted")}>M</button>
@@ -2090,7 +2112,21 @@ function Arrangement({
                   if (mediaId) assignMedia(track.id, mediaId);
                 }}
               >
-                {track.kind === "lighting" ? (
+                {track.sourceType === "instrument" ? (
+                  <div className="midi-lane-content">
+                    <strong>{track.instrument?.mode === "plugin" ? track.instrument.plugin.plugin.name : "SOFTWARE INSTRUMENT"}</strong>
+                    <span>{track.midiClips?.length ? track.midiClips.length + " MIDI region" + (track.midiClips.length === 1 ? "" : "s") : "No MIDI regions yet"}</span>
+                    <div className="midi-region-strip">
+                      {(track.midiClips ?? []).map((clip) => (
+                        <i key={clip.id} title={clip.name} style={{ width: Math.max(4, Math.min(100, clip.lengthBeats / Math.max(1, totalBars * song.meter[0]) * 100)) + "%" }} />
+                      ))}
+                    </div>
+                  </div>
+                ) : track.sourceType === "pad" ? (
+                  <span className="audio-clip-label">PAD INSTRUMENT · open track inspector</span>
+                ) : track.kind === "midi" ? (
+                  <span className="audio-clip-label">MIDI TRACK · open track inspector</span>
+                ) : track.kind === "lighting" ? (
                   <span className="audio-clip-label">Lighting cues are configured per section</span>
                 ) : track.kind === "video" ? (
                   <span className="audio-clip-label">Video is configured in the Video editor</span>
@@ -2104,6 +2140,15 @@ function Arrangement({
           );
         })}
       </div>
+
+      {selectedTrack && (
+        <TrackInspector
+          song={song}
+          track={selectedTrack}
+          audio={audio}
+          onSongChange={onSongChange}
+        />
+      )}
 
       {selectedSection && (
         <div className="inspector panel">
