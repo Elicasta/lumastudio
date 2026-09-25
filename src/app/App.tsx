@@ -1464,7 +1464,7 @@ function Transport({
   onPause: () => Promise<void>;
   onStop: () => Promise<void>;
 }) {
-  const playing = audio.hasLoadedAudio
+  const playing = audio.hasPlayableSource
     ? Boolean(audio.status.playing)
     : previewPlaying;
   const counting = Boolean(audio.status.countInActive);
@@ -1512,17 +1512,17 @@ function Transport({
       <div className={transitionBusy ? "quantize counting" : "quantize"}>{countLabel}</div>
       <div className="transport-spacer" />
       <Status
-        label={audio.status.playing ? "Audio playing" : audio.hasLoadedAudio ? "Audio loaded" : "No audio loaded"}
+        label={audio.status.playing ? "Playback running" : audio.hasPlayableSource ? "Playback ready" : "No playable source"}
         ok={Boolean(audio.status.initialized) && !audio.status.deviceError}
       />
       <Status label="LumaRig" ok={rigConnected} />
       <Status label="Remote" ok={remoteOnline} />
       <Gauge size={17} className="muted" />
       <span className="cpu">
-        {audio.hasLoadedAudio
+        {audio.hasPlayableSource
           ? fmtClock(audio.status.positionSeconds ?? 0) + " / " +
             fmtClock(audio.status.durationSeconds ?? 0)
-          : "No audio position"}
+          : "No playback position"}
       </span>
     </header>
   );
@@ -1592,8 +1592,8 @@ function SetlistPage({
   const [serviceNameDraft, setServiceNameDraft] = useState(setlist.name);
   const duration = audio.status.durationSeconds ?? 0;
   const position = audio.status.positionSeconds ?? 0;
-  const progress = audio.hasLoadedAudio && duration > 0 ? Math.min(100, position / duration * 100) : 0;
-  const transportState = busy ? "COUNT / TRANSITION" : playing ? "PLAYING" : audio.hasLoadedAudio ? "STOPPED · AUDIO LOADED" : "SELECTED · NO AUDIO LOADED";
+  const progress = audio.hasPlayableSource && duration > 0 ? Math.min(100, position / duration * 100) : 0;
+  const transportState = busy ? "COUNT / TRANSITION" : playing ? "PLAYING" : audio.hasPlayableSource ? "STOPPED · READY" : "SELECTED · NO SOURCE";
   const select = async (song: Song) => { setSelecting(true); try { await onSelect(song); } finally { setSelecting(false); } };
   return <section className="service-desk">
     <header className="service-heading"><div><small>SERVICE / SHOW</small>{editingServiceName ? <form className="service-rename" onSubmit={event => { event.preventDefault(); if (onRenameService(serviceNameDraft)) setEditingServiceName(false); }}><input aria-label="Service name" value={serviceNameDraft} onChange={event => setServiceNameDraft(event.target.value)} autoFocus maxLength={100}/><button type="submit" disabled={!serviceNameDraft.trim()||playing||busy}>Save name</button><button type="button" onClick={() => setEditingServiceName(false)}>Cancel</button></form> : <div className="service-title"><h1>{setlist.name}</h1><button aria-label="Rename service" disabled={playing||busy} onClick={() => { setServiceNameDraft(setlist.name); setEditingServiceName(true); }}>Rename</button></div>}<p>Select an item to load its audio. Playback starts only when you press Play.</p></div><div className="service-actions"><button onClick={() => void onNewService()}>New Service</button><button onClick={() => void onOpenProject()}>Open</button><button onClick={onSaveProject}>Save</button><button className="primary" disabled={!setlist.songs.length} onClick={onImport}><Plus size={16}/> Import audio</button></div></header>
@@ -1607,8 +1607,8 @@ function SetlistPage({
       </div>
       <aside className="panel service-transport"><span className={"service-state "+(playing?"playing":"")}>{selecting?"LOADING ITEM":setlist.songs.length?transportState:"EMPTY SERVICE"}</span><h2>{setlist.songs.length?selected.title:"No item selected"}</h2><p>{setlist.songs.length?`${selected.bpm} BPM · ${selected.key} · ${selected.meter.join("/")}`:"Add an item to begin preparing your service."}</p>
         <div className="service-progress" role="progressbar" aria-label="Audio position" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><i style={{width:progress+"%"}}/></div><div className="service-times"><span>{fmtClock(position)}</span><span>{fmtClock(duration)}</span></div>
-        <button className="service-play" disabled={!setlist.songs.length||!audio.hasLoadedAudio||selecting} onClick={()=>void(playing||busy?onPause():onStart())}>{playing||busy?"PAUSE / CANCEL":"PLAY LOADED AUDIO"}</button>
-        {!audio.hasLoadedAudio&&<p className="service-note">Import or load audio before playback. No audio is currently ready.</p>}
+        <button className="service-play" disabled={!setlist.songs.length||!audio.hasPlayableSource||selecting} onClick={()=>void(playing||busy?onPause():onStart())}>{playing||busy?"PAUSE / CANCEL":"PLAY"}</button>
+        {!audio.hasPlayableSource&&<p className="service-note">Add audio or load a software instrument before playback. No playable source is ready.</p>}
         <div className="service-next"><small>NEXT IN RUNNING ORDER</small><strong>{nextSong?.title??"End of service"}</strong><span>{nextSong?"Not loaded. Select it when ready.":"No next item."}</span></div>
       </aside>
       <section className="panel service-preparation"><header><h2>Prepare selected item</h2><button onClick={onOpenArrangement}>Open arrangement →</button></header><div className="preparation-grid"><div><small>STRUCTURE</small><strong>{selected.sections.length} sections</strong><p>{selected.sections.map(section=>section.name).join(" → ") || "No sections defined"}</p></div><div><small>START COUNT-IN</small><div className="count-options">{([0,1,2] as const).map(bars=><button key={bars} disabled={playing||busy} className={(bars===0?selected.countIn.mode==="none":selected.countIn.mode==="bars"&&selected.countIn.value===bars)?"active":""} onClick={()=>onSongChange({...selected,countIn:bars===0?{mode:"none"}:{mode:"bars",value:bars}})}>{bars===0?"Off":bars+ (bars===1?" bar":" bars")}</button>)}</div><p>Applies to this item. Configure guide routing in Connections.</p></div></div></section>
@@ -2872,12 +2872,12 @@ function Mixer({
           <h1>Mixer</h1>
           <p>
             {song.title}
-            {audio.hasLoadedAudio
+            {audio.hasPlayableSource
               ? " · " + (audio.status.deviceName ?? "Native Output")
               : " · preview controls"}
           </p>
         </div>
-        {audio.hasLoadedAudio && (
+        {audio.hasPlayableSource && (
           <div className="master-readout">
             <span>L</span>
             <i style={{ width: ((audio.status.peakLeft ?? 0) * 100) + "%" }} />
