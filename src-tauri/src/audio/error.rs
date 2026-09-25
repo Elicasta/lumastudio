@@ -37,4 +37,7 @@ pub enum AudioError {
 
     #[error("audio bus '{0}' was not found")]
     BusNotFound(String),
+
+    #[error("plugin host error: {0}")]
+    Plugin(String),
 }

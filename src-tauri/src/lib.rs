@@ -12,9 +12,10 @@ use tauri::{webview::WebviewWindowBuilder, WebviewUrl};
 pub fn run() {
     let media_bus=media_bus::MediaBus::default();
     media_bus.start();
+    let live_midi = midi::new_live_midi_queue();
     tauri::Builder::default()
-        .manage(AudioService::default())
-        .manage(midi::MidiService::default())
+        .manage(AudioService::new(live_midi.clone()))
+        .manage(midi::MidiService::new(live_midi))
         .manage(media_bus)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -36,12 +37,24 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             audio::audio_initialize,
+            audio::audio_unit_scan,
+            audio::audio_instrument_load,
+            audio::audio_instrument_unload,
+            audio::audio_instrument_open_editor,
+            audio::audio_instrument_parameters,
+            audio::audio_instrument_set_parameter,
+            audio::audio_instrument_save_state,
+            audio::audio_instrument_send_midi,
+            audio::audio_instrument_set_timeline,
+            audio::audio_instrument_clear_timeline,
             audio::audio_load_pad,
             audio::audio_trigger_pad,
             audio::audio_release_pad,
             audio::audio_stop_pad,
             audio::audio_configure_pad,
             audio::audio_status,
+            audio::audio_list_output_devices,
+            audio::audio_select_output_device,
             audio::audio_load_wav_song,
             audio::audio_load_voice_pack,
             audio::audio_set_guide_timeline,
@@ -65,9 +78,17 @@ pub fn run() {
             video::video_open_output,
             video::video_close_output,
             video::video_fullscreen_output,
+            midi::midi_scan,
+            midi::midi_list_inputs,
             midi::midi_list_outputs,
+            midi::midi_connect_input,
             midi::midi_connect_output,
+            midi::midi_disconnect_input,
             midi::midi_disconnect_output,
+            midi::midi_drain_input,
+            midi::midi_record_start,
+            midi::midi_record_stop,
+            midi::midi_record_cancel,
             midi::midi_send,
             midi::midi_program_change,
             midi::midi_control_change,

@@ -123,6 +123,77 @@ export function musicalPositionAtSeconds(
   };
 }
 
+export function musicalBeatAtSeconds(song: Song, seconds: number): number {
+  if (song.sections.length === 0) return 0;
+
+  const time = Math.max(0, seconds);
+  const sectionIndex = sectionIndexAtSeconds(song, time);
+  let beats = 0;
+
+  for (let index = 0; index < sectionIndex; index += 1) {
+    const section = song.sections[index];
+    const next = song.sections[index + 1];
+    if (!section || !next) break;
+    const bars = Math.max(0, next.startBar - section.startBar);
+    const meter = section.meterOverride ?? song.meter;
+    beats += bars * Math.max(1, meter[0]);
+  }
+
+  const section = song.sections[sectionIndex];
+  if (!section) return beats;
+
+  const sectionStart = sectionStartSeconds(song, sectionIndex);
+  const bpm = section.tempoOverride ?? song.bpm;
+  const meter = section.meterOverride ?? song.meter;
+  const elapsed = Math.max(0, time - sectionStart);
+  return beats + elapsed / secondsPerBeat(bpm, meter);
+}
+
+export function musicalBeatToSeconds(song: Song, beat: number): number {
+  if (song.sections.length === 0) {
+    return Math.max(0, song.downbeatSeconds ?? 0);
+  }
+
+  let remaining = Math.max(0, beat);
+
+  for (let index = 0; index < song.sections.length; index += 1) {
+    const section = song.sections[index];
+    const next = song.sections[index + 1];
+    const meter = section.meterOverride ?? song.meter;
+    const bpm = section.tempoOverride ?? song.bpm;
+    const bars = next
+      ? Math.max(0, next.startBar - section.startBar)
+      : Math.max(1, section.lengthBars);
+    const sectionBeats = bars * Math.max(1, meter[0]);
+
+    if (remaining <= sectionBeats || index === song.sections.length - 1) {
+      return (
+        sectionStartSeconds(song, index) +
+        remaining * secondsPerBeat(bpm, meter)
+      );
+    }
+
+    remaining -= sectionBeats;
+  }
+
+  return Math.max(0, song.downbeatSeconds ?? 0);
+}
+
+export function songEndSeconds(song: Song): number {
+  if (song.sections.length === 0) return Math.max(0, song.durationSeconds);
+
+  const lastIndex = song.sections.length - 1;
+  const section = song.sections[lastIndex];
+  const bpm = section.tempoOverride ?? song.bpm;
+  const meter = section.meterOverride ?? song.meter;
+
+  return Math.max(
+    song.durationSeconds,
+    sectionStartSeconds(song, lastIndex) +
+      Math.max(1, section.lengthBars) * secondsPerBar(bpm, meter)
+  );
+}
+
 export function planSongCountIn(song: Song): {
   countBeats: number;
   beatSeconds: number;

@@ -1,4 +1,6 @@
 export interface MidiSettings {
+  inputIndex?: number;
+  inputName?: string;
   outputIndex?: number;
   outputName?: string;
   channel: number;

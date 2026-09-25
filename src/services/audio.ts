@@ -1,6 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { TrackKind } from "../domain/types";
+import type { AudioUnitPluginInfo } from "./plugins";
+
+export interface NativeAudioOutputDevice {
+  name: string;
+  sampleRate: number;
+  outputChannels: number;
+  isDefault: boolean;
+}
 
 export interface NativeAudioBusStatus {
   gainDb: number;
@@ -49,6 +57,8 @@ export interface NativeAudioStatus {
   countInBar?: number;
   countInBars?: number;
   voicePack?: NativeVoicePackInfo | null;
+  instrument?: AudioUnitPluginInfo | null;
+  instrumentRenderError?: boolean;
   musicBus?: NativeAudioBusStatus;
   clickBus?: NativeAudioBusStatus;
   guideBus?: NativeAudioBusStatus;
@@ -90,6 +100,20 @@ export async function getAudioStatus(): Promise<NativeAudioStatus> {
     return { initialized: false, lastError: "Native audio is available in the Tauri app." };
   }
   return invoke<NativeAudioStatus>("audio_status");
+}
+
+export async function listAudioOutputDevices(): Promise<NativeAudioOutputDevice[]> {
+  if (!isNativeApp()) return [];
+  return invoke<NativeAudioOutputDevice[]>("audio_list_output_devices");
+}
+
+export async function selectAudioOutputDevice(
+  name: string
+): Promise<NativeAudioStatus> {
+  if (!isNativeApp()) {
+    throw new Error("Audio output selection is available in the desktop app.");
+  }
+  return invoke<NativeAudioStatus>("audio_select_output_device", { name });
 }
 
 export async function chooseAudioTracks(): Promise<NativeAudioTrack[]> {

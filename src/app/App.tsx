@@ -24,8 +24,11 @@ import {
   WandSparkles
 } from "lucide-react";
 import { SessionView } from "../components/SessionView";
+import { TrackInspector } from "../components/TrackInspector";
 import { createProject } from "../domain/project";
 import { createServiceSong, moveServiceItem, reflowSongSections, selectedServiceSong } from "../domain/service";
+import { createSoftwareInstrumentTrack } from "../domain/workstation";
+import { buildInstrumentTimeline } from "../domain/instrumentTimeline";
 import { missingMedia, projectMediaPaths, type MediaFileStatus } from "../domain/preflight";
 import { isNativeApp } from "../services/audio";
 import { openProject, saveProject } from "../services/projectStore";
@@ -40,7 +43,18 @@ import type { BuildTool, CountInSettings, Page, Setlist, ShowTool, Song, Workspa
 import { adjacentSong } from "../domain/setlist";
 import { sectionCueDispatch } from "../domain/cues";
 import { dispatchSectionCue } from "../services/cueDispatcher";
-import { connectMidiOutput, disconnectMidiOutput, listMidiOutputs, sendControlChange, sendMidiPatch, sendProgramChange, type MidiPort } from "../services/midi";
+import {
+  connectMidiInput,
+  connectMidiOutput,
+  disconnectMidiInput,
+  disconnectMidiOutput,
+  drainMidiInput,
+  scanMidiDevices,
+  sendControlChange,
+  sendMidiPatch,
+  sendProgramChange,
+  type MidiPort
+} from "../services/midi";
 import type { MidiSettings } from "../domain/midi";
 import {
   buildAutomaticGuideTimeline,
@@ -72,6 +86,12 @@ import { cueIdsBeforePosition, duePresentationCues } from "../domain/presentatio
 import { useProPresenter } from "../hooks/useProPresenter";
 import type { PlanningCenterPlanImport } from "../services/planningCenter";
 import { normalizeProPresenterName } from "../services/propresenter";
+import {
+  activateSongInstrument,
+  captureActiveInstrumentState,
+  songSoftwareInstrumentTrack,
+  syncActiveInstrumentTimeline
+} from "../services/instrumentRuntime";
 
 const workspaceNav: Array<{ page: Workspace; label: string; icon: typeof Music2 }> = [
   { page: "import", label: "Import", icon: Upload },
@@ -122,6 +142,8 @@ export function App() {
   const [liveLayout, setLiveLayout] = useState<"session"|"performance">("session");
   const [queuedManualSection, setQueuedManualSection] = useState<number | null>(null);
   const selectingSongRef = useRef(false);
+  const instrumentRuntimeSongRef = useRef("");
+  const instrumentTimelineFingerprintRef = useRef("");
   const audio = useAudioEngine();
   const lumarig = useLumaRig();
   const [remoteLightingBlackout, setRemoteLightingBlackout] = useState(false);
@@ -164,6 +186,76 @@ export function App() {
     } catch (error) { setMediaCheck({missing: [], checked: 0, error: `File preflight failed: ${String(error)}`}); }
   }, [mediaPaths]);
   useEffect(() => { if (page === "show" || page === "live") void checkMedia(); }, [page, checkMedia]);
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    if (instrumentRuntimeSongRef.current === selectedSong.id) return;
+    if (audio.status.playing || audio.status.transitionActive) return;
+
+    instrumentRuntimeSongRef.current = selectedSong.id;
+    instrumentTimelineFingerprintRef.current = "";
+
+    let cancelled = false;
+    void activateSongInstrument(selectedSong)
+      .then(async (result) => {
+        if (cancelled) return;
+        await audio.refresh();
+        if (result.warning) setProjectError(result.warning);
+      })
+      .catch((cause) => {
+        if (!cancelled) {
+          setProjectError("Software instrument could not be restored: " + String(cause));
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedSong.id,
+    audio.status.playing,
+    audio.status.transitionActive,
+    audio.refresh
+  ]);
+
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    const activeIdentifier = audio.status.instrument?.identifier;
+    if (!activeIdentifier) return;
+
+    const track = songSoftwareInstrumentTrack(selectedSong);
+    if (
+      !track ||
+      track.instrument?.mode !== "plugin" ||
+      track.instrument.plugin.plugin.identifier !== activeIdentifier
+    ) {
+      return;
+    }
+
+    const fingerprint = JSON.stringify({
+      songId: selectedSong.id,
+      bpm: selectedSong.bpm,
+      meter: selectedSong.meter,
+      downbeatSeconds: selectedSong.downbeatSeconds,
+      sections: selectedSong.sections.map((section) => ({
+        id: section.id,
+        startBar: section.startBar,
+        lengthBars: section.lengthBars,
+        tempoOverride: section.tempoOverride,
+        meterOverride: section.meterOverride
+      })),
+      clips: track.midiClips ?? []
+    });
+    if (fingerprint === instrumentTimelineFingerprintRef.current) return;
+
+    instrumentTimelineFingerprintRef.current = fingerprint;
+    void syncActiveInstrumentTimeline(selectedSong, activeIdentifier)
+      .then(() => audio.refresh())
+      .catch((cause) => {
+        instrumentTimelineFingerprintRef.current = "";
+        setProjectError("MIDI instrument timeline could not be synchronized: " + String(cause));
+      });
+  }, [selectedSong, audio.status.instrument?.identifier, audio.refresh]);
+
   const integrationSettings = project.integrations ?? defaultIntegrationSettings();
   const proPresenter = useProPresenter(integrationSettings.propresenter, selectedSong, currentSection);
   const lastDispatchedSectionRef = useRef<string | null>(null);
@@ -328,16 +420,50 @@ export function App() {
     }] : []);
   }
 
+  const syncInstrumentForSong = useCallback(async (song?: Song) => {
+    const instrumentTrack = song?.tracks.find(
+      (track) =>
+        track.sourceType === "instrument" &&
+        track.instrument?.mode === "plugin"
+    );
+
+    const instance =
+      instrumentTrack?.instrument?.mode === "plugin"
+        ? instrumentTrack.instrument.plugin
+        : undefined;
+
+    if (!song || !instrumentTrack || !instance) {
+      return audio.unloadInstrument();
+    }
+
+    if (audio.status.instrument?.identifier !== instance.plugin.identifier) {
+      const loaded = await audio.loadInstrument(instance);
+      if (!loaded) return false;
+    }
+
+    const timeline = buildInstrumentTimeline(song, instrumentTrack);
+    return audio.syncInstrumentTimeline(
+      timeline.events,
+      timeline.durationSeconds
+    );
+  }, [
+    audio.loadInstrument,
+    audio.unloadInstrument,
+    audio.syncInstrumentTimeline,
+    audio.status.instrument?.identifier
+  ]);
+
   const selectSetlistSong = useCallback(
     async (song: Song) => {
       if (selectingSongRef.current || audio.status.playing || audio.status.transitionActive || audio.status.countInActive) return false;
       selectingSongRef.current = true;
       try {
-      if (audio.hasLoadedAudio) {
+      if (audio.hasPlayableSource) {
         await audio.stop();
       }
       const songMedia = nativeTracksForSong(song);
       if ((songMedia.length || audio.hasLoadedAudio) && !await audio.loadTracks(songMedia)) return false;
+      if (!await syncInstrumentForSong(song)) return false;
       setPreviewPlaying(false);
       setQueuedManualSection(null);
       setSelectedSong(song);
@@ -346,11 +472,20 @@ export function App() {
       return true;
       } finally { selectingSongRef.current = false; }
     },
-    [audio.hasLoadedAudio, audio.stop, audio.loadTracks, audio.status.playing, audio.status.transitionActive, audio.status.countInActive]
+    [
+      audio.hasLoadedAudio,
+      audio.hasPlayableSource,
+      audio.stop,
+      audio.loadTracks,
+      audio.status.playing,
+      audio.status.transitionActive,
+      audio.status.countInActive,
+      syncInstrumentForSong
+    ]
   );
 
   const startPlayback = useCallback(async () => {
-    if (!audio.hasLoadedAudio) {
+    if (!audio.hasPlayableSource) {
       return;
     }
 
@@ -396,7 +531,7 @@ export function App() {
 
     await audio.playPause();
   }, [
-    audio.hasLoadedAudio,
+    audio.hasPlayableSource,
     audio.playPause,
     audio.scheduleTransition,
     audio.seek,
@@ -407,7 +542,7 @@ export function App() {
   ]);
 
   const pausePlayback = useCallback(async () => {
-    if (!audio.hasLoadedAudio) {
+    if (!audio.hasPlayableSource) {
       setPreviewPlaying(false);
       return;
     }
@@ -424,14 +559,14 @@ export function App() {
     }
   }, [
     audio.cancelTransition,
-    audio.hasLoadedAudio,
+    audio.hasPlayableSource,
     audio.playPause,
     audio.status.transitionActive,
     audio.status.playing
   ]);
 
   const stopPlayback = useCallback(async () => {
-    if (audio.hasLoadedAudio) {
+    if (audio.hasPlayableSource) {
       await audio.stop();
     }
     setPreviewPlaying(false);
@@ -439,14 +574,14 @@ export function App() {
     setQueuedManualSection(null);
     currentSectionRef.current = 0;
     setCurrentSection(0);
-  }, [audio.hasLoadedAudio, audio.stop]);
+  }, [audio.hasPlayableSource, audio.stop]);
 
   const launchSection = useCallback(
     async (index: number): Promise<boolean> => {
       const target = selectedSong.sections[index];
       if (!target) return false;
 
-      if (audio.hasLoadedAudio && audio.status.playing) {
+      if (audio.hasPlayableSource && audio.status.playing) {
         if (audio.status.transitionActive) {
           await audio.cancelTransition();
         }
@@ -488,7 +623,7 @@ export function App() {
         return true;
       }
 
-      if (audio.hasLoadedAudio) {
+      if (audio.hasPlayableSource) {
         await audio.seek(sectionStartSeconds(selectedSong, index));
       }
 
@@ -499,7 +634,7 @@ export function App() {
     },
     [
       audio.cancelTransition,
-      audio.hasLoadedAudio,
+      audio.hasPlayableSource,
       audio.scheduleTransition,
       audio.seek,
       audio.status.transitionActive,
@@ -510,7 +645,7 @@ export function App() {
   );
 
   useEffect(() => {
-    if (!audio.hasLoadedAudio || !audio.status.playing) return;
+    if (!audio.hasPlayableSource || !audio.status.playing) return;
     if (audio.status.transitionActive) return;
 
     const index = sectionIndexAtSeconds(
@@ -523,7 +658,7 @@ export function App() {
     setQueuedManualSection((queued) => (queued === index ? null : queued));
     remoteSectionTransitionRef.current.release();
   }, [
-    audio.hasLoadedAudio,
+    audio.hasPlayableSource,
     audio.status.transitionActive,
     audio.status.playing,
     audio.status.positionSeconds,
@@ -531,7 +666,7 @@ export function App() {
   ]);
 
   useEffect(() => {
-    if (!audio.hasLoadedAudio) return;
+    if (!audio.hasPlayableSource) return;
 
     const voiceEnabled =
       selectedSong.guideVoice.outputMode === "voice-and-click" ||
@@ -545,7 +680,7 @@ export function App() {
 
     void audio.updateGuideTimeline(events);
   }, [
-    audio.hasLoadedAudio,
+    audio.hasPlayableSource,
     audio.status.voicePack?.id,
     audio.updateGuideTimeline,
     selectedSong
@@ -558,7 +693,7 @@ export function App() {
 
       switch (message.command) {
         case "transport.play":
-          if (!audio.hasLoadedAudio) return reject("No audio is loaded for the selected item.");
+          if (!audio.hasPlayableSource) return reject("No playable source is loaded for the selected item.");
           await startPlayback();
           return ok();
 
@@ -765,7 +900,7 @@ export function App() {
       }
     },
     [
-      audio.hasLoadedAudio,
+      audio.hasPlayableSource,
       currentSection,
       launchSection,
       pausePlayback,
@@ -878,10 +1013,32 @@ export function App() {
 
   async function saveCurrentProject(saveAs = false) {
     try {
-      const snapshot = { ...project, setlist: { ...project.setlist, songs: project.setlist.songs.map(song => song.id === selectedSong.id ? selectedSong : song) } };
-      const path = await saveProject(snapshot, saveAs ? undefined : projectPath);
-      if (path) { setProjectPath(path); setProjectError(""); }
-    } catch (error) { setProjectError(String(error)); }
+      const songForSave = await captureActiveInstrumentState(
+        selectedSong,
+        audio.status.instrument?.identifier
+      );
+      if (songForSave !== selectedSong) setSelectedSong(songForSave);
+
+      const snapshot = {
+        ...project,
+        setlist: {
+          ...project.setlist,
+          songs: project.setlist.songs.map((song) =>
+            song.id === songForSave.id ? songForSave : song
+          )
+        }
+      };
+      const path = await saveProject(
+        snapshot,
+        saveAs ? undefined : projectPath
+      );
+      if (path) {
+        setProjectPath(path);
+        setProjectError("");
+      }
+    } catch (error) {
+      setProjectError(String(error));
+    }
   }
 
   async function openStudioProject() {
@@ -894,6 +1051,10 @@ export function App() {
       if (song || audio.hasLoadedAudio) {
         const loaded = await audio.loadTracks(song ? nativeTracksForSong(song) : []);
         if (!loaded) { setProjectError("Project was not opened: its audio could not be loaded. The current service is unchanged."); return; }
+      }
+      if (!await syncInstrumentForSong(song)) {
+        setProjectError("Project was not opened: its software instrument could not be restored. The current service is unchanged.");
+        return;
       }
       setProject(opened.project);
       setProjectPath(opened.path);
@@ -910,6 +1071,7 @@ export function App() {
     if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) { setProjectError("Stop playback before starting a new service."); return; }
     if ((project.setlist.songs.length || projectPath) && !window.confirm("Create a new service? Save your current service first if you need to keep recent changes.")) return;
     if (audio.hasLoadedAudio && !await audio.loadTracks([])) { setProjectError("Cannot clear the current audio. The service was not changed."); return; }
+    if (!await audio.unloadInstrument()) { setProjectError("Cannot clear the current instrument. The service was not changed."); return; }
     await stopAllPadVoices();
     const blank = createProject("New Service");
     setProject(blank);
@@ -926,6 +1088,7 @@ export function App() {
   async function addServiceSong(title: string) {
     if (audio.status.playing || audio.status.transitionActive || audio.status.countInActive) { setProjectError("Stop playback before changing the running order."); return false; }
     if (audio.hasLoadedAudio && !await audio.loadTracks([])) { setProjectError("Cannot clear the previous item's audio. Item was not added."); return false; }
+    if (!await audio.unloadInstrument()) { setProjectError("Cannot clear the previous item's instrument. Item was not added."); return false; }
     const song = createServiceSong(title);
     setProject(current => ({ ...current, selectedSongId: song.id, setlist: { ...current.setlist, songs: [...current.setlist.songs, song] }, updatedAt: new Date().toISOString() }));
     setSelectedSong(song); setCurrentSection(0); setQueuedManualSection(null);
@@ -976,6 +1139,10 @@ export function App() {
       const next = selectedSong.id === id ? (remaining[Math.min(project.setlist.songs.indexOf(item), remaining.length - 1)] ?? remaining[remaining.length - 1]) : selectedSong;
       if (selectedSong.id === id && (audio.hasLoadedAudio || (next && nativeTracksForSong(next).length))) {
         if (!await audio.loadTracks(next ? nativeTracksForSong(next) : [])) { setProjectError("Could not load the next item's audio. The current item was kept."); return false; }
+      }
+      if (selectedSong.id === id && !await syncInstrumentForSong(next)) {
+        setProjectError("Could not restore the next item's software instrument. The current item was kept.");
+        return false;
       }
       setProject(current => ({ ...current, setlist: { ...current.setlist, songs: remaining }, selectedSongId: next?.id, updatedAt: new Date().toISOString() }));
       if (selectedSong.id === id) { setSelectedSong(next ?? createServiceSong("Untitled item")); setCurrentSection(0); setQueuedManualSection(null); }
@@ -1236,28 +1403,95 @@ function ToolRail<T extends string>({
 }
 
 function MidiEditor({ settings, sections, onSettingsChange, onSectionsChange }: { settings: MidiSettings; sections: Song["sections"]; onSettingsChange: (settings: MidiSettings) => void; onSectionsChange: (sections: Song["sections"]) => void }) {
-  const [ports, setPorts] = useState<MidiPort[]>([]);
-  const [connected, setConnected] = useState(false);
+  const [inputs, setInputs] = useState<MidiPort[]>([]);
+  const [outputs, setOutputs] = useState<MidiPort[]>([]);
+  const [inputConnected, setInputConnected] = useState(false);
+  const [outputConnected, setOutputConnected] = useState(false);
+  const [lastInput, setLastInput] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [testProgram, setTestProgram] = useState(0);
-  const refresh = useCallback(async () => { try { setPorts(await listMidiOutputs()); setError(""); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }, []);
+
+  const refresh = useCallback(async () => {
+    try {
+      const devices = await scanMidiDevices();
+      setInputs(devices.inputs);
+      setOutputs(devices.outputs);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
+
   useEffect(() => { void refresh(); }, [refresh]);
 
-  async function connect(index: number) {
-    try { const name = await connectMidiOutput(index); onSettingsChange({ ...settings, outputIndex: index, outputName: name }); setConnected(true); setError(""); }
-    catch (e) { setConnected(false); setError(e instanceof Error ? e.message : String(e)); }
+  useEffect(() => {
+    if (!inputConnected) return;
+    const timer = window.setInterval(() => {
+      void drainMidiInput(256)
+        .then((messages) => {
+          const latest = messages.at(-1);
+          if (latest) setLastInput(latest.bytes);
+        })
+        .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, [inputConnected]);
+
+  async function connectInput(index: number) {
+    try {
+      const name = await connectMidiInput(index);
+      onSettingsChange({ ...settings, inputIndex: index, inputName: name });
+      setInputConnected(true);
+      setError("");
+    } catch (cause) {
+      setInputConnected(false);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
   }
+
+  async function connectOutput(index: number) {
+    try {
+      const name = await connectMidiOutput(index);
+      onSettingsChange({ ...settings, outputIndex: index, outputName: name });
+      setOutputConnected(true);
+      setError("");
+    } catch (cause) {
+      setOutputConnected(false);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
   return <section className="midi-editor">
-    <div className="page-head"><div><h1>MIDI</h1><p>Route section changes and manual messages to hardware, IAC or virtual MIDI destinations.</p></div><button onClick={() => void refresh()}>Refresh Devices</button></div>
+    <div className="page-head"><div><h1>MIDI I/O</h1><p>Detect keyboard ports, capture live MIDI and route tracks to hardware destinations.</p></div><button onClick={() => void refresh()}>Rescan MIDI</button></div>
     {error && <div className="error-banner">{error}</div>}
     <div className="midi-grid">
-      <div className="panel"><h2>Output</h2><label><span>Destination</span><select value={settings.outputIndex ?? ""} onChange={(e) => void connect(Number(e.currentTarget.value))}><option value="">Select MIDI output</option>{ports.map((port)=><option key={port.index} value={port.index}>{port.name}</option>)}</select></label><label><span>Default Channel</span><input type="number" min="1" max="16" value={settings.channel} onChange={(e)=>onSettingsChange({...settings,channel:Math.max(1,Math.min(16,Number(e.currentTarget.value)))})}/></label><p>{connected ? "Connected · " + settings.outputName : "Not connected"}</p><button disabled={!connected} onClick={() => void disconnectMidiOutput().then(()=>setConnected(false))}>Disconnect</button></div>
-      <div className="panel"><h2>Test Output</h2><label><span>Program</span><input type="number" min="0" max="127" value={testProgram} onChange={(e)=>setTestProgram(Number(e.currentTarget.value))}/></label><button disabled={!connected} onClick={()=>void sendProgramChange(settings.channel,testProgram)}>Send Program Change</button><button disabled={!connected} onClick={()=>void sendControlChange(settings.channel,1,127)}>Send CC 1 · 127</button></div>
-      <div className="panel midi-section-map"><h2>Section Patches</h2>{sections.map((section,index)=><label key={section.id}><span>{section.name}</span><input value={section.midiPatch ?? ""} placeholder={"e.g. 12@" + settings.channel} onChange={(e)=>onSectionsChange(sections.map((item,i)=>i===index?{...item,midiPatch:e.currentTarget.value||undefined}:item))}/><button disabled={!connected || !section.midiPatch} onClick={()=>section.midiPatch && void sendMidiPatch(section.midiPatch)}>Test</button></label>)}</div>
+      <div className="panel">
+        <h2>Input</h2>
+        <label><span>Controller / Keyboard</span><select value={settings.inputIndex ?? ""} onChange={(event) => void connectInput(Number(event.currentTarget.value))}><option value="">Select MIDI input</option>{inputs.map((port)=><option key={port.index + ":" + port.name} value={port.index}>{port.name}</option>)}</select></label>
+        <p>{inputConnected ? "Listening · " + settings.inputName : "Not listening"}</p>
+        <p>{lastInput.length ? "Last MIDI: " + lastInput.map(byte => byte.toString(16).padStart(2, "0").toUpperCase()).join(" ") : "Play a note to verify input."}</p>
+        <button disabled={!inputConnected} onClick={() => void disconnectMidiInput().then(()=>{setInputConnected(false);setLastInput([]);})}>Disconnect Input</button>
+      </div>
+      <div className="panel">
+        <h2>Output</h2>
+        <label><span>Destination</span><select value={settings.outputIndex ?? ""} onChange={(event) => void connectOutput(Number(event.currentTarget.value))}><option value="">Select MIDI output</option>{outputs.map((port)=><option key={port.index + ":" + port.name} value={port.index}>{port.name}</option>)}</select></label>
+        <label><span>Default Channel</span><input type="number" min="1" max="16" value={settings.channel} onChange={(event)=>onSettingsChange({...settings,channel:Math.max(1,Math.min(16,Number(event.currentTarget.value)))})}/></label>
+        <p>{outputConnected ? "Connected · " + settings.outputName : "Not connected"}</p>
+        <button disabled={!outputConnected} onClick={() => void disconnectMidiOutput().then(()=>setOutputConnected(false))}>Disconnect Output</button>
+      </div>
+      <div className="panel">
+        <h2>Test Output</h2>
+        <label><span>Program</span><input type="number" min="0" max="127" value={testProgram} onChange={(event)=>setTestProgram(Number(event.currentTarget.value))}/></label>
+        <button disabled={!outputConnected} onClick={()=>void sendProgramChange(settings.channel,testProgram)}>Send Program Change</button>
+        <button disabled={!outputConnected} onClick={()=>void sendControlChange(settings.channel,1,127)}>Send CC 1 · 127</button>
+      </div>
+      <div className="panel midi-section-map">
+        <h2>Section Patches</h2>
+        {sections.map((section,index)=><label key={section.id}><span>{section.name}</span><input value={section.midiPatch ?? ""} placeholder={"e.g. 12@" + settings.channel} onChange={(event)=>onSectionsChange(sections.map((item,i)=>i===index?{...item,midiPatch:event.currentTarget.value||undefined}:item))}/><button disabled={!outputConnected || !section.midiPatch} onClick={()=>section.midiPatch && void sendMidiPatch(section.midiPatch)}>Test</button></label>)}
+      </div>
     </div>
   </section>;
 }
-
 function VideoEditor({ program, sections, positionSeconds, playing, sectionId, onChange }: { program?: VideoProgram; sections: Song["sections"]; positionSeconds: number; playing: boolean; sectionId?: string; onChange: (program: VideoProgram) => void }) {
   const value: VideoProgram = program ?? { clips: [], output: { displayEnabled: false, ndiEnabled: false, ndiName: "LumaRig Studio Program" } };
   const [selectedId, setSelectedId] = useState<string | null>(value.clips[0]?.id ?? null);
@@ -1343,7 +1577,7 @@ function Transport({
   onPause: () => Promise<void>;
   onStop: () => Promise<void>;
 }) {
-  const playing = audio.hasLoadedAudio
+  const playing = audio.hasPlayableSource
     ? Boolean(audio.status.playing)
     : previewPlaying;
   const counting = Boolean(audio.status.countInActive);
@@ -1391,17 +1625,17 @@ function Transport({
       <div className={transitionBusy ? "quantize counting" : "quantize"}>{countLabel}</div>
       <div className="transport-spacer" />
       <Status
-        label={audio.status.playing ? "Audio playing" : audio.hasLoadedAudio ? "Audio loaded" : "No audio loaded"}
+        label={audio.status.playing ? "Playback running" : audio.hasPlayableSource ? "Playback ready" : "No playable source"}
         ok={Boolean(audio.status.initialized) && !audio.status.deviceError}
       />
       <Status label="LumaRig" ok={rigConnected} />
       <Status label="Remote" ok={remoteOnline} />
       <Gauge size={17} className="muted" />
       <span className="cpu">
-        {audio.hasLoadedAudio
+        {audio.hasPlayableSource
           ? fmtClock(audio.status.positionSeconds ?? 0) + " / " +
             fmtClock(audio.status.durationSeconds ?? 0)
-          : "No audio position"}
+          : "No playback position"}
       </span>
     </header>
   );
@@ -1471,8 +1705,8 @@ function SetlistPage({
   const [serviceNameDraft, setServiceNameDraft] = useState(setlist.name);
   const duration = audio.status.durationSeconds ?? 0;
   const position = audio.status.positionSeconds ?? 0;
-  const progress = audio.hasLoadedAudio && duration > 0 ? Math.min(100, position / duration * 100) : 0;
-  const transportState = busy ? "COUNT / TRANSITION" : playing ? "PLAYING" : audio.hasLoadedAudio ? "STOPPED · AUDIO LOADED" : "SELECTED · NO AUDIO LOADED";
+  const progress = audio.hasPlayableSource && duration > 0 ? Math.min(100, position / duration * 100) : 0;
+  const transportState = busy ? "COUNT / TRANSITION" : playing ? "PLAYING" : audio.hasPlayableSource ? "STOPPED · READY" : "SELECTED · NO SOURCE";
   const select = async (song: Song) => { setSelecting(true); try { await onSelect(song); } finally { setSelecting(false); } };
   return <section className="service-desk">
     <header className="service-heading"><div><small>SERVICE / SHOW</small>{editingServiceName ? <form className="service-rename" onSubmit={event => { event.preventDefault(); if (onRenameService(serviceNameDraft)) setEditingServiceName(false); }}><input aria-label="Service name" value={serviceNameDraft} onChange={event => setServiceNameDraft(event.target.value)} autoFocus maxLength={100}/><button type="submit" disabled={!serviceNameDraft.trim()||playing||busy}>Save name</button><button type="button" onClick={() => setEditingServiceName(false)}>Cancel</button></form> : <div className="service-title"><h1>{setlist.name}</h1><button aria-label="Rename service" disabled={playing||busy} onClick={() => { setServiceNameDraft(setlist.name); setEditingServiceName(true); }}>Rename</button></div>}<p>Select an item to load its audio. Playback starts only when you press Play.</p></div><div className="service-actions"><button onClick={() => void onNewService()}>New Service</button><button onClick={() => void onOpenProject()}>Open</button><button onClick={onSaveProject}>Save</button><button className="primary" disabled={!setlist.songs.length} onClick={onImport}><Plus size={16}/> Import audio</button></div></header>
@@ -1486,8 +1720,8 @@ function SetlistPage({
       </div>
       <aside className="panel service-transport"><span className={"service-state "+(playing?"playing":"")}>{selecting?"LOADING ITEM":setlist.songs.length?transportState:"EMPTY SERVICE"}</span><h2>{setlist.songs.length?selected.title:"No item selected"}</h2><p>{setlist.songs.length?`${selected.bpm} BPM · ${selected.key} · ${selected.meter.join("/")}`:"Add an item to begin preparing your service."}</p>
         <div className="service-progress" role="progressbar" aria-label="Audio position" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}><i style={{width:progress+"%"}}/></div><div className="service-times"><span>{fmtClock(position)}</span><span>{fmtClock(duration)}</span></div>
-        <button className="service-play" disabled={!setlist.songs.length||!audio.hasLoadedAudio||selecting} onClick={()=>void(playing||busy?onPause():onStart())}>{playing||busy?"PAUSE / CANCEL":"PLAY LOADED AUDIO"}</button>
-        {!audio.hasLoadedAudio&&<p className="service-note">Import or load audio before playback. No audio is currently ready.</p>}
+        <button className="service-play" disabled={!setlist.songs.length||!audio.hasPlayableSource||selecting} onClick={()=>void(playing||busy?onPause():onStart())}>{playing||busy?"PAUSE / CANCEL":"PLAY"}</button>
+        {!audio.hasPlayableSource&&<p className="service-note">Add audio or load a software instrument before playback. No playable source is ready.</p>}
         <div className="service-next"><small>NEXT IN RUNNING ORDER</small><strong>{nextSong?.title??"End of service"}</strong><span>{nextSong?"Not loaded. Select it when ready.":"No next item."}</span></div>
       </aside>
       <section className="panel service-preparation"><header><h2>Prepare selected item</h2><button onClick={onOpenArrangement}>Open arrangement →</button></header><div className="preparation-grid"><div><small>STRUCTURE</small><strong>{selected.sections.length} sections</strong><p>{selected.sections.map(section=>section.name).join(" → ") || "No sections defined"}</p></div><div><small>START COUNT-IN</small><div className="count-options">{([0,1,2] as const).map(bars=><button key={bars} disabled={playing||busy} className={(bars===0?selected.countIn.mode==="none":selected.countIn.mode==="bars"&&selected.countIn.value===bars)?"active":""} onClick={()=>onSongChange({...selected,countIn:bars===0?{mode:"none"}:{mode:"bars",value:bars}})}>{bars===0?"Off":bars+ (bars===1?" bar":" bars")}</button>)}</div><p>Applies to this item. Configure guide routing in Connections.</p></div></div></section>
@@ -1603,12 +1837,35 @@ function Arrangement({
     Math.min(4, Math.max(0, song.sections.length - 1))
   );
   const [nativeDropActive, setNativeDropActive] = useState(false);
+  const [selectedTrackId, setSelectedTrackId] = useState(
+    song.tracks[0]?.id ?? ""
+  );
+  const selectedTrack =
+    song.tracks.find((track) => track.id === selectedTrackId) ??
+    song.tracks[0];
   const selectedSection =
     song.sections[Math.min(selectedSectionIndex, song.sections.length - 1)];
   const sectionEditingLocked = Boolean(audio.status.playing || audio.status.transitionActive || audio.status.countInActive);
   const totalBars = Math.max(
     ...song.sections.map((section) => section.startBar + section.lengthBars - 1)
   );
+  const existingInstrumentTrack = song.tracks.find(
+    (item) => item.sourceType === "instrument"
+  );
+
+  function addInstrumentTrack() {
+    if (sectionEditingLocked) return;
+
+    if (existingInstrumentTrack) {
+      setSelectedTrackId(existingInstrumentTrack.id);
+      return;
+    }
+
+    const track = createSoftwareInstrumentTrack("Software Instrument");
+    onSongChange({ ...song, tracks: [...song.tracks, track] });
+    setSelectedTrackId(track.id);
+  }
+
   function addSection() {
     if (sectionEditingLocked || song.sections.length >= 128) return;
     const number = song.sections.length + 1;
@@ -1748,6 +2005,13 @@ function Arrangement({
           </p>
         </div>
         <div className="head-actions">
+          <button
+            onClick={addInstrumentTrack}
+            disabled={sectionEditingLocked}
+            title={existingInstrumentTrack ? "Open the current software instrument track" : "Add a software instrument track"}
+          >
+            {existingInstrumentTrack ? "Open Instrument" : "+ Instrument"}
+          </button>
           <button onClick={() => void importAudio()}>Import Audio</button>
           <button onClick={() => { setTitleDraft(song.title); setArtistDraft(song.artist); setBpmDraft(song.bpm); setKeyDraft(song.key); setMeterTopDraft(song.meter[0]); setMeterBottomDraft(song.meter[1]); setEditingTitle(true); }}>Edit details</button>
           <button className="primary" onClick={onSave}>Save Project</button>
@@ -1995,7 +2259,11 @@ function Arrangement({
           const acceptsAudio = !["lighting","video","midi"].includes(track.kind);
           const assignedMedia = track.media ? audio.tracks.find((media) => media.id === track.media?.id) : undefined;
           return (
-            <div className="track-lane" key={track.id}>
+            <div
+              className={track.id === selectedTrack?.id ? "track-lane selected-track" : "track-lane"}
+              key={track.id}
+              onClick={() => setSelectedTrackId(track.id)}
+            >
               <div className="track-label">
                 <button title="Solo this loaded track" aria-label={`Solo ${track.name}`} className={track.solo?"active":""} disabled={!track.media || !assignedMedia} onClick={() => void toggleTrack(track,"solo")}>S</button>
                 <button title="Mute this loaded track" aria-label={`Mute ${track.name}`} className={track.muted?"active":""} disabled={!track.media || !assignedMedia} onClick={() => void toggleTrack(track,"muted")}>M</button>
@@ -2012,7 +2280,21 @@ function Arrangement({
                   if (mediaId) assignMedia(track.id, mediaId);
                 }}
               >
-                {track.kind === "lighting" ? (
+                {track.sourceType === "instrument" ? (
+                  <div className="midi-lane-content">
+                    <strong>{track.instrument?.mode === "plugin" ? track.instrument.plugin.plugin.name : "SOFTWARE INSTRUMENT"}</strong>
+                    <span>{track.midiClips?.length ? track.midiClips.length + " MIDI region" + (track.midiClips.length === 1 ? "" : "s") : "No MIDI regions yet"}</span>
+                    <div className="midi-region-strip">
+                      {(track.midiClips ?? []).map((clip) => (
+                        <i key={clip.id} title={clip.name} style={{ width: Math.max(4, Math.min(100, clip.lengthBeats / Math.max(1, totalBars * song.meter[0]) * 100)) + "%" }} />
+                      ))}
+                    </div>
+                  </div>
+                ) : track.sourceType === "pad" ? (
+                  <span className="audio-clip-label">PAD INSTRUMENT · open track inspector</span>
+                ) : track.kind === "midi" ? (
+                  <span className="audio-clip-label">MIDI TRACK · open track inspector</span>
+                ) : track.kind === "lighting" ? (
                   <span className="audio-clip-label">Lighting cues are configured per section</span>
                 ) : track.kind === "video" ? (
                   <span className="audio-clip-label">Video is configured in the Video editor</span>
@@ -2026,6 +2308,15 @@ function Arrangement({
           );
         })}
       </div>
+
+      {selectedTrack && (
+        <TrackInspector
+          song={song}
+          track={selectedTrack}
+          audio={audio}
+          onSongChange={onSongChange}
+        />
+      )}
 
       {selectedSection && (
         <div className="inspector panel">
@@ -2708,12 +2999,12 @@ function Mixer({
           <h1>Mixer</h1>
           <p>
             {song.title}
-            {audio.hasLoadedAudio
+            {audio.hasPlayableSource
               ? " · " + (audio.status.deviceName ?? "Native Output")
               : " · preview controls"}
           </p>
         </div>
-        {audio.hasLoadedAudio && (
+        {audio.hasPlayableSource && (
           <div className="master-readout">
             <span>L</span>
             <i style={{ width: ((audio.status.peakLeft ?? 0) * 100) + "%" }} />
@@ -3156,6 +3447,24 @@ function SettingsPage({ audio }: { audio: AudioEngineController }) {
       <div className="settings-grid">
         <div className="panel settings-card">
           <h3>Audio Engine</h3>
+          <label>
+            <span>Output Device</span>
+            <select
+              value={audio.status.deviceName ?? ""}
+              disabled={audio.busy || Boolean(audio.status.playing) || Boolean(audio.status.transitionActive)}
+              onChange={(event) => {
+                const name = event.currentTarget.value;
+                if (name) void audio.selectOutputDevice(name);
+              }}
+            >
+              <option value="">Select output</option>
+              {audio.outputDevices.map((device) => (
+                <option key={device.name} value={device.name}>
+                  {device.name}{device.isDefault ? " · System Default" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
           <Field
             label="Sample Rate"
             value={audio.status.sampleRate
@@ -3163,13 +3472,17 @@ function SettingsPage({ audio }: { audio: AudioEngineController }) {
               : "Device default"}
           />
           <Field
-            label="Audio Device"
-            value={audio.status.deviceName ?? "Not initialized"}
+            label="Channels"
+            value={String(audio.status.outputChannels ?? 0)}
           />
           <Field
             label="Loaded Tracks"
             value={String(audio.status.loadedTracks ?? 0)}
           />
+          <button disabled={audio.busy} onClick={() => void audio.refreshOutputDevices()}>
+            Rescan Audio Devices
+          </button>
+          {audio.error && <p className="audio-error" role="alert">{audio.error}</p>}
         </div>
 
         <div className="panel settings-card">
@@ -3185,13 +3498,12 @@ function SettingsPage({ audio }: { audio: AudioEngineController }) {
 
         <div className="panel settings-card">
           <h3>Performance Safety</h3>
-          <p>Check the audio device, loaded stems, count-in route and external connections before a service. A performance lock is not currently enforced.</p>
+          <p>Stop playback before switching audio devices. LumaStudio reloads the current multitrack after the native engine changes devices so a switch between an interface and a USB keyboard does not silently detach the song.</p>
         </div>
       </div>
     </section>
   );
 }
-
 function UtilityPage({
   title,
   text,

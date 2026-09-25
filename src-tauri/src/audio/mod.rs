@@ -1,7 +1,9 @@
+mod audio_unit;
 mod bus;
 mod engine;
 mod error;
 mod guide;
+mod instrument;
 mod media;
 mod meter;
 mod model;
@@ -14,13 +16,117 @@ use serde_json::Value;
 use tauri::State;
 
 pub use service::AudioService;
+use audio_unit::AudioUnitPluginInfo;
 use guide::{GuideTimelineEventRequest, GuideTransitionEventRequest};
-use service::AudioTrackRequest;
+use service::{AudioTrackRequest, InstrumentMidiEventRequest};
 
 fn value<T: serde::Serialize>(input: T) -> Result<Value, String> {
     serde_json::to_value(input).map_err(|error| error.to_string())
 }
 
+
+#[tauri::command]
+pub fn audio_unit_scan() -> Result<Value, String> {
+    value(audio_unit::scan()?)
+}
+
+#[tauri::command]
+pub fn audio_instrument_load(
+    plugin: AudioUnitPluginInfo,
+    state: Option<String>,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    value(
+        service
+            .load_instrument(plugin, state.as_deref())
+            .map_err(|error| error.to_string())?,
+    )
+}
+
+#[tauri::command]
+pub fn audio_instrument_unload(
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    value(
+        service
+            .unload_instrument()
+            .map_err(|error| error.to_string())?,
+    )
+}
+
+#[tauri::command]
+pub fn audio_instrument_open_editor(
+    service: State<'_, AudioService>,
+) -> Result<(), String> {
+    service
+        .open_instrument_editor()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn audio_instrument_parameters(
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    value(
+        service
+            .instrument_parameters()
+            .map_err(|error| error.to_string())?,
+    )
+}
+
+#[tauri::command]
+pub fn audio_instrument_set_parameter(
+    id: u32,
+    value: f32,
+    service: State<'_, AudioService>,
+) -> Result<(), String> {
+    service
+        .set_instrument_parameter(id, value)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn audio_instrument_save_state(
+    service: State<'_, AudioService>,
+) -> Result<String, String> {
+    service
+        .save_instrument_state()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn audio_instrument_send_midi(
+    bytes: Vec<u8>,
+    service: State<'_, AudioService>,
+) -> Result<(), String> {
+    service
+        .send_instrument_midi(&bytes)
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn audio_instrument_set_timeline(
+    events: Vec<InstrumentMidiEventRequest>,
+    duration_seconds: f64,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    value(
+        service
+            .set_instrument_timeline(events, duration_seconds)
+            .map_err(|error| error.to_string())?,
+    )
+}
+
+#[tauri::command]
+pub fn audio_instrument_clear_timeline(
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    value(
+        service
+            .clear_instrument_timeline()
+            .map_err(|error| error.to_string())?,
+    )
+}
 
 #[tauri::command]
 pub fn audio_load_pad(index: usize, path: String, looped: bool, gain_db: f32, width: f32, octave: i32, attack_ms: u64, release_ms: u64, service: State<'_, AudioService>) -> Result<(), String> {
@@ -51,6 +157,24 @@ pub fn audio_configure_pad(index: usize, gain_db: f32, width: f32, attack_ms: u6
 pub fn audio_initialize(service: State<'_, AudioService>) -> Result<Value, String> {
     let status = service.initialize().map_err(|error| error.to_string())?;
     value(status)
+}
+
+
+#[tauri::command]
+pub fn audio_list_output_devices(service: State<'_, AudioService>) -> Result<Value, String> {
+    value(service.output_devices().map_err(|error| error.to_string())?)
+}
+
+#[tauri::command]
+pub fn audio_select_output_device(
+    name: String,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    value(
+        service
+            .select_output_device(&name)
+            .map_err(|error| error.to_string())?,
+    )
 }
 
 #[tauri::command]

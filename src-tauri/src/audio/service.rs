@@ -2,12 +2,16 @@ use std::{path::Path, sync::Mutex};
 
 use serde::{Deserialize, Serialize};
 
+use crate::midi::{new_live_midi_queue, LiveMidiQueue};
+
 use super::{
-    engine::{AudioEngine, AudioEngineStatus},
+    audio_unit::{AudioUnitParameterInfo, AudioUnitPluginInfo},
+    engine::{AudioEngine, AudioEngineStatus, AudioOutputDeviceInfo},
     error::AudioError,
     guide::{
         load_voice_pack, GuideTimelineEventRequest, GuideTransitionEventRequest,
     },
+    instrument::InstrumentMidiEvent,
     media::{load_wav_track, WavTrackRequest},
     model::{SongMix, TrackBus},
     pad::PadSample,
@@ -27,6 +31,13 @@ pub struct AudioTrackRequest {
     pub bus: String,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstrumentMidiEventRequest {
+    pub at_seconds: f64,
+    pub bytes: Vec<u8>,
+}
+
 fn default_track_bus() -> String {
     "music".into()
 }
@@ -41,23 +52,31 @@ pub struct UninitializedAudioStatus {
 pub struct AudioService {
     engine: Mutex<Option<AudioEngine>>,
     last_error: Mutex<Option<String>>,
+    preferred_device: Mutex<Option<String>>,
+    live_midi: LiveMidiQueue,
 }
 
 impl Default for AudioService {
     fn default() -> Self {
-        Self {
-            engine: Mutex::new(None),
-            last_error: Mutex::new(None),
-        }
+        Self::new(new_live_midi_queue())
     }
 }
 
 impl AudioService {
+    pub fn new(live_midi: LiveMidiQueue) -> Self {
+        Self {
+            engine: Mutex::new(None),
+            last_error: Mutex::new(None),
+            preferred_device: Mutex::new(None),
+            live_midi,
+        }
+    }
+
     pub fn initialize(&self) -> Result<AudioEngineStatus, AudioError> {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
 
         if guard.is_none() {
-            match AudioEngine::new() {
+            match self.create_engine() {
                 Ok(engine) => {
                     *self.last_error.lock().expect("audio error mutex poisoned") = None;
                     *guard = Some(engine);
@@ -71,6 +90,52 @@ impl AudioService {
         }
 
         Ok(guard.as_ref().expect("initialized above").status())
+    }
+
+    pub fn output_devices(&self) -> Result<Vec<AudioOutputDeviceInfo>, AudioError> {
+        AudioEngine::output_devices()
+    }
+
+    pub fn select_output_device(&self, name: &str) -> Result<AudioEngineStatus, AudioError> {
+        if name.trim().is_empty() {
+            return Err(AudioError::Device("audio output name cannot be empty".into()));
+        }
+
+        let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
+        if let Some(engine) = guard.as_ref() {
+            let status = engine.status();
+            if status.playing || status.transition_active {
+                return Err(AudioError::Device(
+                    "stop playback before changing the audio output device".into(),
+                ));
+            }
+        }
+
+        let saved_instrument = guard.as_ref().and_then(|engine| {
+            let status = engine.status();
+            status.instrument.and_then(|plugin| {
+                engine
+                    .save_instrument_state()
+                    .ok()
+                    .map(|state| (plugin, state))
+            })
+        });
+
+        let engine = AudioEngine::new_for_device_with_midi(
+            Some(name),
+            self.live_midi.clone(),
+        )?;
+        if let Some((plugin, state)) = saved_instrument {
+            engine.load_instrument(plugin, Some(&state))?;
+        }
+        let status = engine.status();
+        *guard = Some(engine);
+        *self
+            .preferred_device
+            .lock()
+            .expect("audio device mutex poisoned") = Some(name.to_owned());
+        *self.last_error.lock().expect("audio error mutex poisoned") = None;
+        Ok(status)
     }
 
     pub fn status_json(&self) -> serde_json::Value {
@@ -95,7 +160,7 @@ impl AudioService {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
 
         if guard.is_none() {
-            *guard = Some(AudioEngine::new()?);
+            *guard = Some(self.create_engine()?);
         }
 
         let engine = guard.as_ref().expect("initialized above");
@@ -126,9 +191,102 @@ impl AudioService {
         Ok(engine.status())
     }
 
+    pub fn load_instrument(
+        &self,
+        plugin: AudioUnitPluginInfo,
+        state: Option<&str>,
+    ) -> Result<AudioEngineStatus, AudioError> {
+        let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
+        if guard.is_none() {
+            *guard = Some(self.create_engine()?);
+        }
+
+        let engine = guard.as_ref().expect("initialized above");
+        engine.load_instrument(plugin, state)?;
+        Ok(engine.status())
+    }
+
+    pub fn unload_instrument(&self) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.unload_instrument()?;
+            Ok(engine.status())
+        })?
+    }
+
+    pub fn open_instrument_editor(&self) -> Result<(), AudioError> {
+        self.with_engine(AudioEngine::open_instrument_editor)?
+    }
+
+    pub fn instrument_parameters(&self) -> Result<Vec<AudioUnitParameterInfo>, AudioError> {
+        self.with_engine(AudioEngine::instrument_parameters)?
+    }
+
+    pub fn set_instrument_parameter(&self, id: u32, value: f32) -> Result<(), AudioError> {
+        self.with_engine(|engine| engine.set_instrument_parameter(id, value))?
+    }
+
+    pub fn save_instrument_state(&self) -> Result<String, AudioError> {
+        self.with_engine(AudioEngine::save_instrument_state)?
+    }
+
+    pub fn send_instrument_midi(&self, bytes: &[u8]) -> Result<(), AudioError> {
+        self.with_engine(|engine| engine.send_instrument_midi(bytes))?
+    }
+
+    pub fn set_instrument_timeline(
+        &self,
+        events: Vec<InstrumentMidiEventRequest>,
+        duration_seconds: f64,
+    ) -> Result<AudioEngineStatus, AudioError> {
+        let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
+        if guard.is_none() {
+            *guard = Some(self.create_engine()?);
+        }
+        let engine = guard.as_ref().expect("initialized above");
+        let sample_rate = engine.sample_rate();
+
+        let mut prepared = Vec::with_capacity(events.len());
+        for event in events {
+            if !event.at_seconds.is_finite() || event.at_seconds < 0.0 {
+                return Err(AudioError::Plugin("MIDI timeline contains an invalid time".into()));
+            }
+            let status = *event
+                .bytes
+                .first()
+                .ok_or_else(|| AudioError::Plugin("MIDI timeline contains an empty message".into()))?;
+            let family = status & 0xf0;
+            let len = if family == 0xc0 || family == 0xd0 { 2 } else { 3 };
+            if !(0x80..=0xe0).contains(&family) || event.bytes.len() < len {
+                return Err(AudioError::Plugin(
+                    "MIDI timeline accepts channel voice messages only".into(),
+                ));
+            }
+            prepared.push(InstrumentMidiEvent {
+                frame: (event.at_seconds * sample_rate as f64).round() as u64,
+                bytes: [
+                    status,
+                    event.bytes.get(1).copied().unwrap_or(0) & 0x7f,
+                    event.bytes.get(2).copied().unwrap_or(0) & 0x7f,
+                ],
+                len: len as u8,
+            });
+        }
+
+        prepared.sort_by_key(|event| event.frame);
+        engine.set_instrument_timeline(prepared, duration_seconds);
+        Ok(engine.status())
+    }
+
+    pub fn clear_instrument_timeline(&self) -> Result<AudioEngineStatus, AudioError> {
+        self.with_engine(|engine| {
+            engine.clear_instrument_timeline();
+            engine.status()
+        })
+    }
+
     pub fn load_pad(&self, index: usize, path: &str, looped: bool, gain_db: f32, width: f32, octave: i32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
-        if guard.is_none() { *guard = Some(AudioEngine::new()?); }
+        if guard.is_none() { *guard = Some(self.create_engine()?); }
         let engine = guard.as_ref().expect("initialized above");
         let track = load_wav_track(&WavTrackRequest {
             id: format!("pad-{}", index + 1),
@@ -159,7 +317,7 @@ impl AudioService {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
 
         if guard.is_none() {
-            *guard = Some(AudioEngine::new()?);
+            *guard = Some(self.create_engine()?);
         }
 
         let engine = guard.as_ref().expect("initialized above");
@@ -285,6 +443,18 @@ impl AudioService {
 
     pub fn set_track_solo(&self, id: &str, solo: bool) -> Result<(), AudioError> {
         self.with_engine(|engine| engine.set_track_solo(id, solo))?
+    }
+
+    fn create_engine(&self) -> Result<AudioEngine, AudioError> {
+        let preferred = self
+            .preferred_device
+            .lock()
+            .expect("audio device mutex poisoned")
+            .clone();
+        AudioEngine::new_for_device_with_midi(
+            preferred.as_deref(),
+            self.live_midi.clone(),
+        )
     }
 
     fn with_engine<T>(&self, operation: impl FnOnce(&AudioEngine) -> T) -> Result<T, AudioError> {

@@ -10,6 +10,8 @@ import {
   chooseVoicePackDirectory,
   chooseAudioTracks,
   getAudioStatus,
+  listAudioOutputDevices,
+  selectAudioOutputDevice,
   isNativeApp,
   loadVoicePack,
   loadAudioSong,
@@ -20,10 +22,19 @@ import {
   setNativeTrackGain,
   setNativeTrackMuted,
   setNativeTrackSolo,
+  type NativeAudioOutputDevice,
   type NativeAudioStatus,
   type NativeAudioTrack,
   type NativeGuideTimelineEvent
 } from "../services/audio";
+import type { PluginInstance } from "../domain/types";
+import {
+  clearInstrumentTimeline,
+  loadAudioUnitInstrument,
+  setInstrumentTimeline,
+  unloadAudioUnitInstrument,
+  type AudioUnitPluginInfo
+} from "../services/plugins";
 
 const VOICE_PACK_PATH_KEY = "lumarig.audio.voice-pack-path";
 const BUS_SETTINGS_KEY = "lumarig.audio.bus-settings";
@@ -43,6 +54,7 @@ type SavedBusSettings = Partial<Record<AudioBusId, SavedBusSetting>>;
 export function useAudioEngine() {
   const [status, setStatus] = useState<NativeAudioStatus>({ initialized: false });
   const [tracks, setTracks] = useState<NativeAudioTrack[]>([]);
+  const [outputDevices, setOutputDevices] = useState<NativeAudioOutputDevice[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,6 +65,19 @@ export function useAudioEngine() {
       setError(messageOf(cause));
     }
   }, []);
+
+  const refreshOutputDevices = useCallback(async () => {
+    try {
+      setOutputDevices(await listAudioOutputDevices());
+    } catch (cause) {
+      setError(messageOf(cause));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isNativeApp()) return;
+    void refreshOutputDevices();
+  }, [refreshOutputDevices]);
 
   useEffect(() => {
     const savedVoicePack = localStorage.getItem(VOICE_PACK_PATH_KEY);
@@ -248,14 +273,109 @@ export function useAudioEngine() {
     }
   }, []);
 
+  const loadInstrument = useCallback(async (instance: PluginInstance) => {
+    const plugin = instance.plugin;
+    if (
+      plugin.format !== "audio-unit" ||
+      plugin.componentType === undefined ||
+      plugin.componentSubType === undefined ||
+      plugin.componentManufacturer === undefined
+    ) {
+      setError("This instrument does not contain a restorable Audio Unit identity.");
+      return false;
+    }
+
+    const native: AudioUnitPluginInfo = {
+      identifier: plugin.identifier,
+      name: plugin.name,
+      manufacturer: plugin.vendor ?? "Unknown",
+      typeName: "Audio Unit",
+      version: plugin.version ?? "",
+      category: "instrument",
+      componentType: plugin.componentType,
+      componentSubType: plugin.componentSubType,
+      componentManufacturer: plugin.componentManufacturer,
+      hasCustomView: Boolean(plugin.hasCustomView),
+      sandboxSafe: true
+    };
+
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await loadAudioUnitInstrument(native, instance.state));
+      return true;
+    } catch (cause) {
+      setError(messageOf(cause));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const unloadInstrument = useCallback(async () => {
+    setError(null);
+    try {
+      if (status.initialized) {
+        setStatus(await clearInstrumentTimeline());
+      }
+      if (!status.instrument) return true;
+      setBusy(true);
+      setStatus(await unloadAudioUnitInstrument());
+      return true;
+    } catch (cause) {
+      setError(messageOf(cause));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [status.initialized, status.instrument]);
+
+  const syncInstrumentTimeline = useCallback(async (
+    events: Array<{ atSeconds: number; bytes: number[] }>,
+    durationSeconds: number
+  ) => {
+    setError(null);
+    try {
+      const next = durationSeconds > 0
+        ? await setInstrumentTimeline(events, durationSeconds)
+        : await clearInstrumentTimeline();
+      setStatus(next);
+      return true;
+    } catch (cause) {
+      setError(messageOf(cause));
+      return false;
+    }
+  }, []);
 
   return {
     status,
     tracks,
+    outputDevices,
     busy,
     error,
     hasLoadedAudio: (status.loadedTracks ?? 0) > 0,
+    hasPlayableSource: (status.loadedTracks ?? 0) > 0 || Boolean(status.instrument),
     refresh,
+    refreshOutputDevices,
+    selectOutputDevice: async (name: string) => {
+      if (busy || status.playing || status.transitionActive) return false;
+      setBusy(true);
+      setError(null);
+      try {
+        let next = await selectAudioOutputDevice(name);
+        if (tracks.length > 0) {
+          next = await loadAudioSong(tracks);
+        }
+        setStatus(next);
+        await refreshOutputDevices();
+        return true;
+      } catch (cause) {
+        setError(messageOf(cause));
+        return false;
+      } finally {
+        setBusy(false);
+      }
+    },
     chooseAndLoad,
     loadTracks,
     loadPaths,
@@ -266,6 +386,9 @@ export function useAudioEngine() {
     seek,
     scheduleTransition,
     cancelTransition,
+    loadInstrument,
+    unloadInstrument,
+    syncInstrumentTimeline,
     setBusGain: async (
       id: "music" | "click" | "guide" | "master",
       gainDb: number

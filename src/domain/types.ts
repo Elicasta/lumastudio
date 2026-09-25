@@ -11,6 +11,171 @@ export type TrackKind =
   | "lighting"
   | "video";
 
+export type TrackSourceType = "audio" | "midi" | "instrument" | "pad";
+export type PluginFormat = "audio-unit" | "vst3";
+export type PluginCategory = "instrument" | "effect";
+
+export interface PluginReference {
+  identifier: string;
+  name: string;
+  vendor?: string;
+  format: PluginFormat;
+  category: PluginCategory;
+  componentType?: number;
+  componentSubType?: number;
+  componentManufacturer?: number;
+  version?: string;
+  hasCustomView?: boolean;
+}
+
+export interface PluginParameterValue {
+  id: string;
+  value: number;
+}
+
+export interface PluginInstance {
+  id: string;
+  plugin: PluginReference;
+  bypassed: boolean;
+  presetName?: string;
+  state?: string;
+  parameters?: PluginParameterValue[];
+}
+
+export interface TrackEffectSlot {
+  id: string;
+  enabled: boolean;
+  plugin: PluginInstance;
+}
+
+export interface MidiPortTarget {
+  outputName: string;
+  channel: number;
+}
+
+export type InstrumentDestination =
+  | {
+      mode: "plugin";
+      plugin: PluginInstance;
+    }
+  | {
+      mode: "external-midi";
+      target: MidiPortTarget;
+    };
+
+export interface MidiNoteEvent {
+  id: string;
+  type: "note";
+  beat: number;
+  durationBeats: number;
+  note: number;
+  velocity: number;
+  channel: number;
+}
+
+export interface MidiControlChangeEvent {
+  id: string;
+  type: "cc";
+  beat: number;
+  controller: number;
+  value: number;
+  channel: number;
+}
+
+export interface MidiProgramChangeEvent {
+  id: string;
+  type: "program";
+  beat: number;
+  program: number;
+  channel: number;
+}
+
+export interface MidiPitchBendEvent {
+  id: string;
+  type: "pitch-bend";
+  beat: number;
+  value: number;
+  channel: number;
+}
+
+export interface MidiChannelPressureEvent {
+  id: string;
+  type: "channel-pressure";
+  beat: number;
+  value: number;
+  channel: number;
+}
+
+export interface MidiPolyPressureEvent {
+  id: string;
+  type: "poly-pressure";
+  beat: number;
+  note: number;
+  value: number;
+  channel: number;
+}
+
+export type MidiEvent =
+  | MidiNoteEvent
+  | MidiControlChangeEvent
+  | MidiProgramChangeEvent
+  | MidiPitchBendEvent
+  | MidiChannelPressureEvent
+  | MidiPolyPressureEvent;
+
+export interface MidiClip {
+  id: string;
+  name: string;
+  startBeat: number;
+  lengthBeats: number;
+  events: MidiEvent[];
+}
+
+export interface PadSlotDefinition {
+  id: string;
+  name: string;
+  path?: string;
+  note: number;
+  gainDb: number;
+  mode: "one-shot" | "loop" | "hold" | "latch";
+}
+
+export interface PadInstrumentData {
+  slots: PadSlotDefinition[];
+}
+
+export interface TrackGroup {
+  id: string;
+  name: string;
+  color?: string;
+  collapsed?: boolean;
+}
+
+export interface MidiTrigger {
+  type: "note" | "cc";
+  number: number;
+  channel?: number;
+  value?: number;
+  inputName?: string;
+}
+
+export interface Locator {
+  id: string;
+  name: string;
+  bar: number;
+  beat: number;
+  color?: string;
+  midiTrigger?: MidiTrigger;
+}
+
+export interface LoopRegion {
+  enabled: boolean;
+  startBar: number;
+  startBeat: number;
+  endBar: number;
+  endBeat: number;
+}
+
 export type CountInMode = "none" | "beats" | "bars" | "adaptive";
 export type PresentationMode = "manual" | "section-follow" | "full-auto";
 export type PresentationCueAction = "next" | "previous";
@@ -83,11 +248,18 @@ export interface Track {
   muted: boolean;
   solo: boolean;
   gainDb: number;
+  sourceType?: TrackSourceType;
+  parentGroupId?: string;
   media?: {
     id: string;
     path: string;
     startSeconds: number;
   };
+  midiInputName?: string;
+  midiClips?: MidiClip[];
+  instrument?: InstrumentDestination;
+  padInstrument?: PadInstrumentData;
+  effects?: TrackEffectSlot[];
 }
 
 export interface SongExternalLinks {
@@ -113,6 +285,9 @@ export interface Song {
   guideVoice: GuideVoiceSettings;
   guideMarkers: GuideMarker[];
   tracks: Track[];
+  trackGroups?: TrackGroup[];
+  locators?: Locator[];
+  loopRegion?: LoopRegion;
   sections: Section[];
   external?: SongExternalLinks;
   presentation?: PresentationAutomation;
