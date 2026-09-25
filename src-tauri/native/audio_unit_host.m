@@ -11,6 +11,10 @@ typedef struct {
     Float64 sampleTime;
     UInt32 maxFrames;
     void *editorWindow;
+    const Float32 *inputLeft;
+    const Float32 *inputRight;
+    UInt32 inputFrames;
+    UInt32 inputOffset;
 } LumaAUInstance;
 
 static char *copy_utf8(NSString *value) {
@@ -106,6 +110,72 @@ void luma_au_free_string(char *value) {
     if (value) free(value);
 }
 
+static OSStatus luma_effect_input_callback(
+    void *inRefCon,
+    AudioUnitRenderActionFlags *ioActionFlags,
+    const AudioTimeStamp *inTimeStamp,
+    UInt32 inBusNumber,
+    UInt32 inNumberFrames,
+    AudioBufferList *ioData
+) {
+    LumaAUInstance *instance = (LumaAUInstance *)inRefCon;
+    if (!instance || !ioData) return kAudio_ParamError;
+
+    UInt32 available = 0;
+    if (instance->inputOffset < instance->inputFrames) {
+        available = MIN(
+            inNumberFrames,
+            instance->inputFrames - instance->inputOffset
+        );
+    }
+
+    for (UInt32 bufferIndex = 0; bufferIndex < ioData->mNumberBuffers; bufferIndex++) {
+        AudioBuffer *buffer = &ioData->mBuffers[bufferIndex];
+        Float32 *destination = (Float32 *)buffer->mData;
+        if (!destination) continue;
+
+        const Float32 *source =
+            bufferIndex == 0 ? instance->inputLeft : instance->inputRight;
+
+        if (source && available > 0) {
+            memcpy(
+                destination,
+                source + instance->inputOffset,
+                available * sizeof(Float32)
+            );
+        }
+        if (available < inNumberFrames) {
+            memset(
+                destination + available,
+                0,
+                (inNumberFrames - available) * sizeof(Float32)
+            );
+        }
+        buffer->mDataByteSize = inNumberFrames * sizeof(Float32);
+    }
+
+    instance->inputOffset += available;
+    return noErr;
+}
+
+static void luma_fill_stereo_format(
+    AudioStreamBasicDescription *format,
+    double sampleRate
+) {
+    memset(format, 0, sizeof(*format));
+    format->mSampleRate = sampleRate;
+    format->mFormatID = kAudioFormatLinearPCM;
+    format->mFormatFlags =
+        kAudioFormatFlagIsFloat |
+        kAudioFormatFlagIsNonInterleaved |
+        kAudioFormatFlagsNativeEndian;
+    format->mBytesPerPacket = sizeof(Float32);
+    format->mFramesPerPacket = 1;
+    format->mBytesPerFrame = sizeof(Float32);
+    format->mChannelsPerFrame = 2;
+    format->mBitsPerChannel = 32;
+}
+
 LumaAUInstance *luma_au_create(
     UInt32 componentType,
     UInt32 componentSubType,
@@ -135,18 +205,8 @@ LumaAUInstance *luma_au_create(
         return NULL;
     }
 
-    AudioStreamBasicDescription format = {0};
-    format.mSampleRate = sampleRate;
-    format.mFormatID = kAudioFormatLinearPCM;
-    format.mFormatFlags =
-        kAudioFormatFlagIsFloat |
-        kAudioFormatFlagIsNonInterleaved |
-        kAudioFormatFlagsNativeEndian;
-    format.mBytesPerPacket = sizeof(Float32);
-    format.mFramesPerPacket = 1;
-    format.mBytesPerFrame = sizeof(Float32);
-    format.mChannelsPerFrame = 2;
-    format.mBitsPerChannel = 32;
+    AudioStreamBasicDescription format;
+    luma_fill_stereo_format(&format, sampleRate);
 
     status = AudioUnitSetProperty(
         unit,
@@ -191,6 +251,108 @@ LumaAUInstance *luma_au_create(
     instance->desc = desc;
     instance->sampleTime = 0.0;
     instance->maxFrames = safeMaxFrames;
+    if (outStatus) *outStatus = noErr;
+    return instance;
+}
+
+LumaAUInstance *luma_au_create_effect(
+    UInt32 componentType,
+    UInt32 componentSubType,
+    UInt32 componentManufacturer,
+    double sampleRate,
+    UInt32 maxFrames,
+    int32_t *outStatus
+) {
+    AudioComponentDescription desc = {
+        .componentType = componentType,
+        .componentSubType = componentSubType,
+        .componentManufacturer = componentManufacturer,
+        .componentFlags = 0,
+        .componentFlagsMask = 0
+    };
+
+    AudioComponent component = AudioComponentFindNext(NULL, &desc);
+    if (!component) {
+        if (outStatus) *outStatus = kAudio_ParamError;
+        return NULL;
+    }
+
+    AudioUnit unit = NULL;
+    OSStatus status = AudioComponentInstanceNew(component, &unit);
+    if (status != noErr || !unit) {
+        if (outStatus) *outStatus = status;
+        return NULL;
+    }
+
+    LumaAUInstance *instance = calloc(1, sizeof(LumaAUInstance));
+    if (!instance) {
+        AudioComponentInstanceDispose(unit);
+        if (outStatus) *outStatus = memFullErr;
+        return NULL;
+    }
+    instance->unit = unit;
+    instance->desc = desc;
+    instance->sampleTime = 0.0;
+    instance->maxFrames = maxFrames > 0 ? maxFrames : 4096;
+
+    AudioStreamBasicDescription format;
+    luma_fill_stereo_format(&format, sampleRate);
+
+    status = AudioUnitSetProperty(
+        unit,
+        kAudioUnitProperty_StreamFormat,
+        kAudioUnitScope_Input,
+        0,
+        &format,
+        sizeof(format)
+    );
+    if (status == noErr) {
+        status = AudioUnitSetProperty(
+            unit,
+            kAudioUnitProperty_StreamFormat,
+            kAudioUnitScope_Output,
+            0,
+            &format,
+            sizeof(format)
+        );
+    }
+
+    UInt32 safeMaxFrames = instance->maxFrames;
+    if (status == noErr) {
+        AudioUnitSetProperty(
+            unit,
+            kAudioUnitProperty_MaximumFramesPerSlice,
+            kAudioUnitScope_Global,
+            0,
+            &safeMaxFrames,
+            sizeof(safeMaxFrames)
+        );
+
+        AURenderCallbackStruct callback = {
+            .inputProc = luma_effect_input_callback,
+            .inputProcRefCon = instance
+        };
+        status = AudioUnitSetProperty(
+            unit,
+            kAudioUnitProperty_SetRenderCallback,
+            kAudioUnitScope_Input,
+            0,
+            &callback,
+            sizeof(callback)
+        );
+    }
+
+    if (status == noErr) {
+        status = AudioUnitInitialize(unit);
+    }
+
+    if (status != noErr) {
+        AudioComponentInstanceDispose(unit);
+        free(instance);
+        if (outStatus) *outStatus = status;
+        return NULL;
+    }
+
     if (outStatus) *outStatus = noErr;
     return instance;
 }
@@ -378,6 +540,36 @@ int32_t luma_au_render(
     if (status == noErr) {
         instance->sampleTime += frames;
     }
+    return status;
+}
+
+int32_t luma_au_render_effect(
+    LumaAUInstance *instance,
+    UInt32 frames,
+    const Float32 *inputLeft,
+    const Float32 *inputRight,
+    Float32 *outputLeft,
+    Float32 *outputRight
+) {
+    if (!instance || !inputLeft || !inputRight || !outputLeft || !outputRight) {
+        return kAudio_ParamError;
+    }
+    instance->inputLeft = inputLeft;
+    instance->inputRight = inputRight;
+    instance->inputFrames = frames;
+    instance->inputOffset = 0;
+
+    OSStatus status = luma_au_render(
+        instance,
+        frames,
+        outputLeft,
+        outputRight
+    );
+
+    instance->inputLeft = NULL;
+    instance->inputRight = NULL;
+    instance->inputFrames = 0;
+    instance->inputOffset = 0;
     return status;
 }
 
