@@ -1,3 +1,4 @@
+use crossbeam_queue::ArrayQueue;
 use midir::{
     Ignore, MidiInput, MidiInputConnection, MidiOutput, MidiOutputConnection,
 };
@@ -10,20 +11,41 @@ use std::{
 use tauri::State;
 
 const MAX_CAPTURED_MESSAGES: usize = 16_384;
+const LIVE_MIDI_CAPACITY: usize = 4_096;
+
+#[derive(Debug, Clone, Copy)]
+pub struct MidiRealtimeMessage {
+    pub bytes: [u8; 3],
+    pub len: u8,
+}
+
+pub type LiveMidiQueue = Arc<ArrayQueue<MidiRealtimeMessage>>;
+
+pub fn new_live_midi_queue() -> LiveMidiQueue {
+    Arc::new(ArrayQueue::new(LIVE_MIDI_CAPACITY))
+}
 
 pub struct MidiService {
     output_connection: Mutex<Option<MidiOutputConnection>>,
     input_connection: Mutex<Option<MidiInputConnection<()>>>,
     captured: Arc<Mutex<VecDeque<MidiCapturedMessage>>>,
+    live_midi: LiveMidiQueue,
 }
 
-impl Default for MidiService {
-    fn default() -> Self {
+impl MidiService {
+    pub fn new(live_midi: LiveMidiQueue) -> Self {
         Self {
             output_connection: Mutex::new(None),
             input_connection: Mutex::new(None),
             captured: Arc::new(Mutex::new(VecDeque::with_capacity(1024))),
+            live_midi,
         }
+    }
+}
+
+impl Default for MidiService {
+    fn default() -> Self {
+        Self::new(new_live_midi_queue())
     }
 }
 
@@ -86,6 +108,35 @@ fn list_inputs() -> Result<Vec<MidiPort>, String> {
         .collect()
 }
 
+fn realtime_message(bytes: &[u8]) -> Option<MidiRealtimeMessage> {
+    let status = *bytes.first()?;
+    let family = status & 0xf0;
+    if !(0x80..=0xe0).contains(&family) {
+        return None;
+    }
+
+    let len = if family == 0xc0 || family == 0xd0 { 2 } else { 3 };
+    if bytes.len() < len {
+        return None;
+    }
+
+    Some(MidiRealtimeMessage {
+        bytes: [
+            status,
+            bytes.get(1).copied().unwrap_or(0),
+            bytes.get(2).copied().unwrap_or(0),
+        ],
+        len: len as u8,
+    })
+}
+
+fn push_live(queue: &ArrayQueue<MidiRealtimeMessage>, message: MidiRealtimeMessage) {
+    if queue.push(message).is_err() {
+        let _ = queue.pop();
+        let _ = queue.push(message);
+    }
+}
+
 #[tauri::command]
 pub fn midi_scan() -> Result<MidiDeviceSnapshot, String> {
     Ok(MidiDeviceSnapshot {
@@ -144,8 +195,10 @@ pub fn midi_connect_input(index: usize, service: State<MidiService>) -> Result<S
             .map_err(|_| "MIDI capture queue lock poisoned")?;
         queue.clear();
     }
+    while service.live_midi.pop().is_some() {}
 
     let captured = Arc::clone(&service.captured);
+    let live_midi = Arc::clone(&service.live_midi);
     let started = Instant::now();
     let connection = midi
         .connect(
@@ -154,6 +207,10 @@ pub fn midi_connect_input(index: usize, service: State<MidiService>) -> Result<S
             move |_timestamp, bytes, _| {
                 if bytes.is_empty() {
                     return;
+                }
+
+                if let Some(message) = realtime_message(bytes) {
+                    push_live(&live_midi, message);
                 }
 
                 if let Ok(mut queue) = captured.lock() {
@@ -201,6 +258,7 @@ pub fn midi_disconnect_input(service: State<MidiService>) -> Result<(), String> 
         .lock()
         .map_err(|_| "MIDI capture queue lock poisoned")?
         .clear();
+    while service.live_midi.pop().is_some() {}
 
     Ok(())
 }
@@ -262,4 +320,26 @@ pub fn midi_control_change(
     }
 
     midi_send(vec![0xB0 | (channel - 1), controller, value], service)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converts_channel_voice_messages_for_realtime_routing() {
+        let note = realtime_message(&[0x90, 60, 100]).unwrap();
+        assert_eq!(note.len, 3);
+        assert_eq!(note.bytes, [0x90, 60, 100]);
+
+        let program = realtime_message(&[0xc2, 12]).unwrap();
+        assert_eq!(program.len, 2);
+        assert_eq!(program.bytes, [0xc2, 12, 0]);
+    }
+
+    #[test]
+    fn ignores_system_messages_for_the_realtime_instrument_queue() {
+        assert!(realtime_message(&[0xf8]).is_none());
+        assert!(realtime_message(&[0xf0, 1, 2, 0xf7]).is_none());
+    }
 }
