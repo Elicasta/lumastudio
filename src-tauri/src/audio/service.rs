@@ -3,7 +3,7 @@ use std::{path::Path, sync::Mutex};
 use serde::{Deserialize, Serialize};
 
 use super::{
-    engine::{AudioEngine, AudioEngineStatus},
+    engine::{AudioEngine, AudioEngineStatus, AudioOutputDeviceInfo},
     error::AudioError,
     guide::{
         load_voice_pack, GuideTimelineEventRequest, GuideTransitionEventRequest,
@@ -41,6 +41,7 @@ pub struct UninitializedAudioStatus {
 pub struct AudioService {
     engine: Mutex<Option<AudioEngine>>,
     last_error: Mutex<Option<String>>,
+    preferred_device: Mutex<Option<String>>,
 }
 
 impl Default for AudioService {
@@ -48,6 +49,7 @@ impl Default for AudioService {
         Self {
             engine: Mutex::new(None),
             last_error: Mutex::new(None),
+            preferred_device: Mutex::new(None),
         }
     }
 }
@@ -57,7 +59,7 @@ impl AudioService {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
 
         if guard.is_none() {
-            match AudioEngine::new() {
+            match self.create_engine() {
                 Ok(engine) => {
                     *self.last_error.lock().expect("audio error mutex poisoned") = None;
                     *guard = Some(engine);
@@ -71,6 +73,36 @@ impl AudioService {
         }
 
         Ok(guard.as_ref().expect("initialized above").status())
+    }
+
+    pub fn output_devices(&self) -> Result<Vec<AudioOutputDeviceInfo>, AudioError> {
+        AudioEngine::output_devices()
+    }
+
+    pub fn select_output_device(&self, name: &str) -> Result<AudioEngineStatus, AudioError> {
+        if name.trim().is_empty() {
+            return Err(AudioError::Device("audio output name cannot be empty".into()));
+        }
+
+        let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
+        if let Some(engine) = guard.as_ref() {
+            let status = engine.status();
+            if status.playing || status.transition_active {
+                return Err(AudioError::Device(
+                    "stop playback before changing the audio output device".into(),
+                ));
+            }
+        }
+
+        let engine = AudioEngine::new_for_device(Some(name))?;
+        let status = engine.status();
+        *guard = Some(engine);
+        *self
+            .preferred_device
+            .lock()
+            .expect("audio device mutex poisoned") = Some(name.to_owned());
+        *self.last_error.lock().expect("audio error mutex poisoned") = None;
+        Ok(status)
     }
 
     pub fn status_json(&self) -> serde_json::Value {
@@ -95,7 +127,7 @@ impl AudioService {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
 
         if guard.is_none() {
-            *guard = Some(AudioEngine::new()?);
+            *guard = Some(self.create_engine()?);
         }
 
         let engine = guard.as_ref().expect("initialized above");
@@ -128,7 +160,7 @@ impl AudioService {
 
     pub fn load_pad(&self, index: usize, path: &str, looped: bool, gain_db: f32, width: f32, octave: i32, attack_ms: u64, release_ms: u64) -> Result<(), AudioError> {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
-        if guard.is_none() { *guard = Some(AudioEngine::new()?); }
+        if guard.is_none() { *guard = Some(self.create_engine()?); }
         let engine = guard.as_ref().expect("initialized above");
         let track = load_wav_track(&WavTrackRequest {
             id: format!("pad-{}", index + 1),
@@ -159,7 +191,7 @@ impl AudioService {
         let mut guard = self.engine.lock().expect("audio engine mutex poisoned");
 
         if guard.is_none() {
-            *guard = Some(AudioEngine::new()?);
+            *guard = Some(self.create_engine()?);
         }
 
         let engine = guard.as_ref().expect("initialized above");
@@ -285,6 +317,15 @@ impl AudioService {
 
     pub fn set_track_solo(&self, id: &str, solo: bool) -> Result<(), AudioError> {
         self.with_engine(|engine| engine.set_track_solo(id, solo))?
+    }
+
+    fn create_engine(&self) -> Result<AudioEngine, AudioError> {
+        let preferred = self
+            .preferred_device
+            .lock()
+            .expect("audio device mutex poisoned")
+            .clone();
+        AudioEngine::new_for_device(preferred.as_deref())
     }
 
     fn with_engine<T>(&self, operation: impl FnOnce(&AudioEngine) -> T) -> Result<T, AudioError> {
