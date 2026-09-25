@@ -27,6 +27,12 @@ import {
   type NativeAudioTrack,
   type NativeGuideTimelineEvent
 } from "../services/audio";
+import type { PluginInstance } from "../domain/types";
+import {
+  loadAudioUnitInstrument,
+  unloadAudioUnitInstrument,
+  type AudioUnitPluginInfo
+} from "../services/plugins";
 
 const VOICE_PACK_PATH_KEY = "lumarig.audio.voice-pack-path";
 const BUS_SETTINGS_KEY = "lumarig.audio.bus-settings";
@@ -265,6 +271,59 @@ export function useAudioEngine() {
     }
   }, []);
 
+  const loadInstrument = useCallback(async (instance: PluginInstance) => {
+    const plugin = instance.plugin;
+    if (
+      plugin.format !== "audio-unit" ||
+      plugin.componentType === undefined ||
+      plugin.componentSubType === undefined ||
+      plugin.componentManufacturer === undefined
+    ) {
+      setError("This instrument does not contain a restorable Audio Unit identity.");
+      return false;
+    }
+
+    const native: AudioUnitPluginInfo = {
+      identifier: plugin.identifier,
+      name: plugin.name,
+      manufacturer: plugin.vendor ?? "Unknown",
+      typeName: "Audio Unit",
+      version: plugin.version ?? "",
+      category: "instrument",
+      componentType: plugin.componentType,
+      componentSubType: plugin.componentSubType,
+      componentManufacturer: plugin.componentManufacturer,
+      hasCustomView: Boolean(plugin.hasCustomView),
+      sandboxSafe: true
+    };
+
+    setBusy(true);
+    setError(null);
+    try {
+      setStatus(await loadAudioUnitInstrument(native, instance.state));
+      return true;
+    } catch (cause) {
+      setError(messageOf(cause));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, []);
+
+  const unloadInstrument = useCallback(async () => {
+    setError(null);
+    if (!status.instrument) return true;
+    setBusy(true);
+    try {
+      setStatus(await unloadAudioUnitInstrument());
+      return true;
+    } catch (cause) {
+      setError(messageOf(cause));
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }, [status.instrument]);
 
   return {
     status,
@@ -273,6 +332,7 @@ export function useAudioEngine() {
     busy,
     error,
     hasLoadedAudio: (status.loadedTracks ?? 0) > 0,
+    hasPlayableSource: (status.loadedTracks ?? 0) > 0 || Boolean(status.instrument),
     refresh,
     refreshOutputDevices,
     selectOutputDevice: async (name: string) => {
@@ -304,6 +364,8 @@ export function useAudioEngine() {
     seek,
     scheduleTransition,
     cancelTransition,
+    loadInstrument,
+    unloadInstrument,
     setBusGain: async (
       id: "music" | "click" | "guide" | "master",
       gainDb: number
