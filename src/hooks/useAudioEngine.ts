@@ -29,7 +29,9 @@ import {
 } from "../services/audio";
 import type { PluginInstance } from "../domain/types";
 import {
+  clearInstrumentTimeline,
   loadAudioUnitInstrument,
+  setInstrumentTimeline,
   unloadAudioUnitInstrument,
   type AudioUnitPluginInfo
 } from "../services/plugins";
@@ -312,9 +314,12 @@ export function useAudioEngine() {
 
   const unloadInstrument = useCallback(async () => {
     setError(null);
-    if (!status.instrument) return true;
-    setBusy(true);
     try {
+      if (status.initialized) {
+        setStatus(await clearInstrumentTimeline());
+      }
+      if (!status.instrument) return true;
+      setBusy(true);
       setStatus(await unloadAudioUnitInstrument());
       return true;
     } catch (cause) {
@@ -323,7 +328,24 @@ export function useAudioEngine() {
     } finally {
       setBusy(false);
     }
-  }, [status.instrument]);
+  }, [status.initialized, status.instrument]);
+
+  const syncInstrumentTimeline = useCallback(async (
+    events: Array<{ atSeconds: number; bytes: number[] }>,
+    durationSeconds: number
+  ) => {
+    setError(null);
+    try {
+      const next = events.length
+        ? await setInstrumentTimeline(events, durationSeconds)
+        : await clearInstrumentTimeline();
+      setStatus(next);
+      return true;
+    } catch (cause) {
+      setError(messageOf(cause));
+      return false;
+    }
+  }, []);
 
   return {
     status,
@@ -366,6 +388,7 @@ export function useAudioEngine() {
     cancelTransition,
     loadInstrument,
     unloadInstrument,
+    syncInstrumentTimeline,
     setBusGain: async (
       id: "music" | "click" | "guide" | "master",
       gainDb: number
