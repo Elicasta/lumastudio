@@ -336,7 +336,7 @@ export function useAudioEngine() {
   ) => {
     setError(null);
     try {
-      const next = events.length
+      const next = durationSeconds > 0
         ? await setInstrumentTimeline(events, durationSeconds)
         : await clearInstrumentTimeline();
       setStatus(next);
