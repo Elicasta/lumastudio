@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { AudioEngineController } from "../hooks/useAudioEngine";
 import { buildMidiClipFromRecording } from "../domain/midiRecording";
+import { buildInstrumentTimeline } from "../domain/instrumentTimeline";
 import type { PluginInstance, Song, Track } from "../domain/types";
 import {
   cancelMidiRecording,
@@ -17,7 +18,6 @@ import {
   scanAudioUnits,
   setAudioUnitParameter,
   testInstrumentNote,
-  unloadAudioUnitInstrument,
   type AudioUnitParameter,
   type AudioUnitPluginInfo
 } from "../services/plugins";
@@ -103,12 +103,15 @@ export function TrackInspector({
   }, [recording]);
 
   function updateTrack(updater: (current: Track) => Track) {
-    onSongChange({
+    const nextTrack = updater(track);
+    const nextSong = {
       ...song,
       tracks: song.tracks.map((item) =>
-        item.id === track.id ? updater(item) : item
+        item.id === track.id ? nextTrack : item
       )
-    });
+    };
+    onSongChange(nextSong);
+    return { track: nextTrack, song: nextSong };
   }
 
   async function scan() {
@@ -191,7 +194,7 @@ export function TrackInspector({
         state
       };
 
-      updateTrack((current) => ({
+      const updated = updateTrack((current) => ({
         ...current,
         kind: "midi",
         sourceType: "instrument",
@@ -199,6 +202,12 @@ export function TrackInspector({
         midiClips: current.midiClips ?? [],
         effects: current.effects ?? []
       }));
+
+      const timeline = buildInstrumentTimeline(updated.song, updated.track);
+      await audio.syncInstrumentTimeline(
+        timeline.events,
+        timeline.durationSeconds
+      );
     } catch (cause) {
       setError(messageOf(cause));
     } finally {
@@ -225,8 +234,9 @@ export function TrackInspector({
     setError("");
     try {
       if (active) {
-        await unloadAudioUnitInstrument();
-        await audio.refresh();
+        await audio.unloadInstrument();
+      } else {
+        await audio.syncInstrumentTimeline([], 0);
       }
       setParameters([]);
       updateTrack((current) => ({
@@ -359,10 +369,21 @@ export function TrackInspector({
         messages
       );
 
-      updateTrack((current) => ({
+      const updated = updateTrack((current) => ({
         ...current,
         midiClips: [...(current.midiClips ?? []), clip]
       }));
+
+      if (active) {
+        const timeline = buildInstrumentTimeline(updated.song, updated.track);
+        const synced = await audio.syncInstrumentTimeline(
+          timeline.events,
+          timeline.durationSeconds
+        );
+        if (!synced) {
+          throw new Error("The MIDI take was saved, but the instrument playback timeline could not be refreshed.");
+        }
+      }
     } catch (cause) {
       setError(messageOf(cause));
       void cancelMidiRecording();
