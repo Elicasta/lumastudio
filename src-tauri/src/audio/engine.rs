@@ -430,7 +430,13 @@ impl AudioEngine {
         self.realtime.transition.cancel();
         let mix = self.realtime.mix.load();
         let requested = (seconds.max(0.0) * self.sample_rate as f64).round() as u64;
-        let frame = requested.min(mix.duration_frames);
+        let frame = if mix.duration_frames > 0 {
+            requested.min(mix.duration_frames)
+        } else if self.realtime.instrument.load().is_some() {
+            requested
+        } else {
+            0
+        };
         self.realtime.transport.seek_frame(frame);
     }
 
@@ -447,11 +453,17 @@ impl AudioEngine {
         guide_events: &[GuideTransitionEventRequest],
     ) -> Result<(), AudioError> {
         let mix = self.realtime.mix.load();
-        let target_frame = seconds_to_frame(
+        let requested_target = seconds_to_frame(
             target_seconds.max(0.0),
             self.sample_rate,
-        )
-        .min(mix.duration_frames);
+        );
+        let target_frame = if mix.duration_frames > 0 {
+            requested_target.min(mix.duration_frames)
+        } else if self.realtime.instrument.load().is_some() {
+            requested_target
+        } else {
+            0
+        };
         let total_frames = seconds_to_frame(delay_seconds.max(0.0), self.sample_rate);
         let first_count_delay_frames =
             seconds_to_frame(first_count_delay_seconds.max(0.0), self.sample_rate);
