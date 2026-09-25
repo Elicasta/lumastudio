@@ -276,8 +276,8 @@ int32_t luma_au_open_editor(LumaAUInstance *instance) {
         Class factoryClass = NSClassFromString(className);
         id factory = factoryClass ? [[factoryClass alloc] init] : nil;
         NSView *view = nil;
-        if (factory && [factory conformsToProtocol:@protocol(AudioUnitCocoaViewFactory)]) {
-            view = [(id<AudioUnitCocoaViewFactory>)factory
+        if (factory && [factory conformsToProtocol:@protocol(AUCocoaUIBase)]) {
+            view = [(id<AUCocoaUIBase>)factory
                 uiViewForAudioUnit:instance->unit
                 withSize:NSMakeSize(0, 0)];
         }
