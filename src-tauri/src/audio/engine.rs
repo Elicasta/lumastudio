@@ -5,14 +5,17 @@ use std::{
     },
 };
 
-use arc_swap::ArcSwap;
+use arc_swap::{ArcSwap, ArcSwapOption};
 use cpal::{
     traits::{DeviceTrait, HostTrait, StreamTrait},
     FromSample, Sample, SampleFormat, SizedSample, Stream, StreamConfig,
 };
 use serde::Serialize;
 
+use crate::midi::{new_live_midi_queue, LiveMidiQueue, MidiRealtimeMessage};
+
 use super::{
+    audio_unit::{AudioUnitParameterInfo, AudioUnitPluginInfo},
     bus::BusControl,
     error::AudioError,
     guide::{
@@ -20,6 +23,7 @@ use super::{
         GuideTimelineEventRequest, GuideTransitionEventRequest, VoicePack,
         VoicePackInfo,
     },
+    instrument::HostedInstrument,
     meter::StereoMeter,
     model::{SongMix, TrackBus},
     pad::{render_pad, PadSample, PadVoice},
@@ -42,11 +46,17 @@ pub struct RealtimeState {
     pub master_bus: BusControl,
     pub pad_bus: BusControl,
     pub pads: Vec<PadVoice>,
+    pub instrument: ArcSwapOption<HostedInstrument>,
+    pub live_midi: LiveMidiQueue,
     pub device_error: AtomicBool,
 }
 
 impl RealtimeState {
     fn new() -> Self {
+        Self::with_live_midi(new_live_midi_queue())
+    }
+
+    fn with_live_midi(live_midi: LiveMidiQueue) -> Self {
         Self {
             mix: ArcSwap::from_pointee(SongMix::empty()),
             transport: Transport::new(),
@@ -62,6 +72,8 @@ impl RealtimeState {
             master_bus: BusControl::new(0.0),
             pad_bus: BusControl::new(0.0),
             pads: (0..16).map(|_| PadVoice::new()).collect(),
+            instrument: ArcSwapOption::from(None),
+            live_midi,
             device_error: AtomicBool::new(false),
         }
     }
@@ -114,6 +126,8 @@ pub struct AudioEngineStatus {
     pub count_in_bar: u64,
     pub count_in_bars: u64,
     pub voice_pack: Option<VoicePackInfo>,
+    pub instrument: Option<AudioUnitPluginInfo>,
+    pub instrument_render_error: bool,
     pub music_bus: AudioBusStatus,
     pub click_bus: AudioBusStatus,
     pub guide_bus: AudioBusStatus,
@@ -151,10 +165,17 @@ impl AudioEngine {
     }
 
     pub fn new() -> Result<Self, AudioError> {
-        Self::new_for_device(None)
+        Self::new_for_device_with_midi(None, new_live_midi_queue())
     }
 
     pub fn new_for_device(requested_name: Option<&str>) -> Result<Self, AudioError> {
+        Self::new_for_device_with_midi(requested_name, new_live_midi_queue())
+    }
+
+    pub fn new_for_device_with_midi(
+        requested_name: Option<&str>,
+        live_midi: LiveMidiQueue,
+    ) -> Result<Self, AudioError> {
         let host = cpal::default_host();
         let device = match requested_name {
             Some(requested) => host
@@ -178,7 +199,7 @@ impl AudioEngine {
         let sample_format = supported.sample_format();
         let config = supported.config();
 
-        let realtime = Arc::new(RealtimeState::new());
+        let realtime = Arc::new(RealtimeState::with_live_midi(live_midi));
         if output_channels == 1 {
             realtime.music_bus.set_output_pair(0, 0);
             realtime.click_bus.set_output_pair(0, 0);
@@ -210,6 +231,102 @@ impl AudioEngine {
             sample_rate,
             output_channels,
         })
+    }
+
+    pub fn load_instrument(
+        &self,
+        plugin: AudioUnitPluginInfo,
+        state: Option<&str>,
+    ) -> Result<(), AudioError> {
+        if self.realtime.transport.is_playing() || self.realtime.transition.active() {
+            return Err(AudioError::Plugin(
+                "stop playback before loading a software instrument".into(),
+            ));
+        }
+
+        while self.realtime.live_midi.pop().is_some() {}
+
+        let instrument = HostedInstrument::new(plugin, self.sample_rate, 4096)
+            .map_err(AudioError::Plugin)?;
+        if let Some(state) = state {
+            instrument.load_state(state).map_err(AudioError::Plugin)?;
+        }
+        instrument.clear_render_error();
+        self.realtime.instrument.store(Some(Arc::new(instrument)));
+        Ok(())
+    }
+
+    pub fn unload_instrument(&self) -> Result<(), AudioError> {
+        if self.realtime.transport.is_playing() || self.realtime.transition.active() {
+            return Err(AudioError::Plugin(
+                "stop playback before unloading a software instrument".into(),
+            ));
+        }
+
+        if let Some(instrument) = self.realtime.instrument.load_full() {
+            instrument.all_notes_off();
+        }
+        self.realtime.instrument.store(None);
+        while self.realtime.live_midi.pop().is_some() {}
+        Ok(())
+    }
+
+    pub fn instrument_parameters(&self) -> Result<Vec<AudioUnitParameterInfo>, AudioError> {
+        let instrument = self
+            .realtime
+            .instrument
+            .load_full()
+            .ok_or_else(|| AudioError::Plugin("no software instrument is loaded".into()))?;
+        instrument.parameters().map_err(AudioError::Plugin)
+    }
+
+    pub fn set_instrument_parameter(&self, id: u32, value: f32) -> Result<(), AudioError> {
+        let instrument = self
+            .realtime
+            .instrument
+            .load_full()
+            .ok_or_else(|| AudioError::Plugin("no software instrument is loaded".into()))?;
+        instrument.set_parameter(id, value).map_err(AudioError::Plugin)
+    }
+
+    pub fn save_instrument_state(&self) -> Result<String, AudioError> {
+        let instrument = self
+            .realtime
+            .instrument
+            .load_full()
+            .ok_or_else(|| AudioError::Plugin("no software instrument is loaded".into()))?;
+        instrument.save_state().map_err(AudioError::Plugin)
+    }
+
+    pub fn send_instrument_midi(&self, bytes: &[u8]) -> Result<(), AudioError> {
+        if self.realtime.instrument.load().is_none() {
+            return Err(AudioError::Plugin("no software instrument is loaded".into()));
+        }
+
+        let status = *bytes
+            .first()
+            .ok_or_else(|| AudioError::Plugin("empty MIDI message".into()))?;
+        let family = status & 0xf0;
+        let len = if family == 0xc0 || family == 0xd0 { 2 } else { 3 };
+        if !(0x80..=0xe0).contains(&family) || bytes.len() < len {
+            return Err(AudioError::Plugin(
+                "software instrument accepts MIDI channel voice messages only".into(),
+            ));
+        }
+
+        let message = MidiRealtimeMessage {
+            bytes: [
+                status,
+                bytes.get(1).copied().unwrap_or(0),
+                bytes.get(2).copied().unwrap_or(0),
+            ],
+            len: len as u8,
+        };
+        if self.realtime.live_midi.push(message).is_err() {
+            let _ = self.realtime.live_midi.pop();
+            let _ = self.realtime.live_midi.push(message);
+        }
+        Ok(())
     }
 
     pub fn load_pad(&self, index: usize, sample: PadSample) -> Result<(), AudioError> {
@@ -504,6 +621,7 @@ impl AudioEngine {
             .unwrap_or((0, 0, 0, 0));
 
         let voice_pack = self.realtime.voice_pack.load();
+        let instrument = self.realtime.instrument.load_full();
 
         AudioEngineStatus {
             initialized: true,
@@ -524,6 +642,10 @@ impl AudioEngine {
             count_in_bar,
             count_in_bars,
             voice_pack: VoicePackInfo::from_pack(&**voice_pack),
+            instrument: instrument.as_ref().map(|instrument| instrument.plugin().clone()),
+            instrument_render_error: instrument
+                .as_ref()
+                .is_some_and(|instrument| instrument.has_render_error()),
             music_bus: AudioBusStatus {
                 gain_db: self.realtime.music_bus.gain_db(),
                 muted: self.realtime.music_bus.muted(),
@@ -613,7 +735,9 @@ where
 
     let mix = realtime.mix.load();
     let pads_active = realtime.pads.iter().any(|voice| voice.playing.load(Ordering::Acquire));
-    if mix.duration_frames == 0 && !pads_active {
+    let instrument = realtime.instrument.load_full();
+    let instrument_active = instrument.is_some();
+    if mix.duration_frames == 0 && !pads_active && !instrument_active {
         realtime.transition.cancel();
         realtime.transport.pause();
         realtime.meter.store_peaks(0.0, 0.0);
@@ -632,6 +756,22 @@ where
     let mut peak_left = 0.0_f32;
     let mut peak_right = 0.0_f32;
 
+    const MAX_INSTRUMENT_RENDER_FRAMES: usize = 4096;
+    let frame_count = output.len() / output_channels;
+    let instrument_frames = frame_count.min(MAX_INSTRUMENT_RENDER_FRAMES);
+    let mut instrument_left = [0.0_f32; MAX_INSTRUMENT_RENDER_FRAMES];
+    let mut instrument_right = [0.0_f32; MAX_INSTRUMENT_RENDER_FRAMES];
+    if let Some(instrument) = instrument.as_ref() {
+        instrument.render(
+            instrument_frames,
+            &mut instrument_left,
+            &mut instrument_right,
+            &realtime.live_midi,
+        );
+    } else {
+        while realtime.live_midi.pop().is_some() {}
+    }
+
     guide_renderer.begin_buffer(
         &timeline,
         &transition_guide,
@@ -639,13 +779,13 @@ where
         transition_active,
     );
 
-    if !playing && !transition_active && !pads_active {
+    if !playing && !transition_active && !pads_active && !instrument_active {
         realtime.meter.store_peaks(0.0, 0.0);
         guide_renderer.clear();
         return;
     }
 
-    for frame_out in output.chunks_mut(output_channels) {
+    for (frame_index, frame_out) in output.chunks_mut(output_channels).enumerate() {
         if transition_active && transition_remaining == 0 {
             playhead = transition.target_frame;
             realtime.transport.seek_frame(playhead);
@@ -713,6 +853,11 @@ where
                 realtime.transport.pause();
                 playing = false;
             }
+        }
+
+        if frame_index < instrument_frames {
+            music_left += instrument_left[frame_index];
+            music_right += instrument_right[frame_index];
         }
 
         let (voice_guide_left, voice_guide_right) = guide_renderer.mix_active();
