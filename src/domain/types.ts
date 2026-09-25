@@ -90,10 +90,38 @@ export interface MidiProgramChangeEvent {
   channel: number;
 }
 
+export interface MidiPitchBendEvent {
+  id: string;
+  type: "pitch-bend";
+  beat: number;
+  value: number;
+  channel: number;
+}
+
+export interface MidiChannelPressureEvent {
+  id: string;
+  type: "channel-pressure";
+  beat: number;
+  value: number;
+  channel: number;
+}
+
+export interface MidiPolyPressureEvent {
+  id: string;
+  type: "poly-pressure";
+  beat: number;
+  note: number;
+  value: number;
+  channel: number;
+}
+
 export type MidiEvent =
   | MidiNoteEvent
   | MidiControlChangeEvent
-  | MidiProgramChangeEvent;
+  | MidiProgramChangeEvent
+  | MidiPitchBendEvent
+  | MidiChannelPressureEvent
+  | MidiPolyPressureEvent;
 
 export interface MidiClip {
   id: string;
