@@ -6,6 +6,24 @@ use super::audio_unit::{
     AudioUnitInstance, AudioUnitParameterInfo, AudioUnitPluginInfo,
 };
 
+#[derive(Debug, Clone)]
+pub struct InstrumentMidiEvent {
+    pub frame: u64,
+    pub bytes: [u8; 3],
+    pub len: u8,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct InstrumentMidiSchedule {
+    pub events: Vec<InstrumentMidiEvent>,
+}
+
+impl InstrumentMidiSchedule {
+    pub fn empty() -> Self {
+        Self { events: Vec::new() }
+    }
+}
+
 pub struct HostedInstrument {
     plugin: AudioUnitPluginInfo,
     instance: AudioUnitInstance,
@@ -46,6 +64,50 @@ impl HostedInstrument {
         self.instance.load_state(encoded)
     }
 
+    pub fn dispatch_timeline_range(
+        &self,
+        schedule: &InstrumentMidiSchedule,
+        start_frame: u64,
+        frames: usize,
+        render_offset: usize,
+    ) {
+        if frames == 0 || schedule.events.is_empty() {
+            return;
+        }
+
+        let end_frame = start_frame.saturating_add(frames as u64);
+        let start_index = schedule
+            .events
+            .partition_point(|event| event.frame < start_frame);
+        let end_index = schedule
+            .events
+            .partition_point(|event| event.frame < end_frame);
+
+        for event in &schedule.events[start_index..end_index] {
+            let sample_offset = render_offset
+                .saturating_add(event.frame.saturating_sub(start_frame) as usize)
+                .min(u32::MAX as usize) as u32;
+            if self
+                .instance
+                .send_midi(&event.bytes[..event.len as usize], sample_offset)
+                .is_err()
+            {
+                self.render_error.store(true, Ordering::Release);
+            }
+        }
+    }
+
+    pub fn all_notes_off_at(&self, sample_offset: u32) {
+        for channel in 0..16 {
+            let _ = self
+                .instance
+                .send_midi(&[0xb0 | channel, 123, 0], sample_offset);
+            let _ = self
+                .instance
+                .send_midi(&[0xb0 | channel, 120, 0], sample_offset);
+        }
+    }
+
     pub fn render(
         &self,
         frames: usize,
@@ -83,9 +145,6 @@ impl HostedInstrument {
     }
 
     pub fn all_notes_off(&self) {
-        for channel in 0..16 {
-            let _ = self.instance.send_midi(&[0xb0 | channel, 123, 0], 0);
-            let _ = self.instance.send_midi(&[0xb0 | channel, 120, 0], 0);
-        }
+        self.all_notes_off_at(0);
     }
 }
