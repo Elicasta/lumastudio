@@ -18,7 +18,7 @@ use tauri::State;
 pub use service::AudioService;
 use audio_unit::AudioUnitPluginInfo;
 use guide::{GuideTimelineEventRequest, GuideTransitionEventRequest};
-use service::AudioTrackRequest;
+use service::{AudioTrackRequest, InstrumentMidiEventRequest};
 
 fn value<T: serde::Serialize>(input: T) -> Result<Value, String> {
     serde_json::to_value(input).map_err(|error| error.to_string())
@@ -93,6 +93,30 @@ pub fn audio_instrument_send_midi(
     service
         .send_instrument_midi(&bytes)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub fn audio_instrument_set_timeline(
+    events: Vec<InstrumentMidiEventRequest>,
+    duration_seconds: f64,
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    value(
+        service
+            .set_instrument_timeline(events, duration_seconds)
+            .map_err(|error| error.to_string())?,
+    )
+}
+
+#[tauri::command]
+pub fn audio_instrument_clear_timeline(
+    service: State<'_, AudioService>,
+) -> Result<Value, String> {
+    value(
+        service
+            .clear_instrument_timeline()
+            .map_err(|error| error.to_string())?,
+    )
 }
 
 #[tauri::command]
