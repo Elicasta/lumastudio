@@ -40,7 +40,18 @@ import type { BuildTool, CountInSettings, Page, Setlist, ShowTool, Song, Workspa
 import { adjacentSong } from "../domain/setlist";
 import { sectionCueDispatch } from "../domain/cues";
 import { dispatchSectionCue } from "../services/cueDispatcher";
-import { connectMidiOutput, disconnectMidiOutput, listMidiOutputs, sendControlChange, sendMidiPatch, sendProgramChange, type MidiPort } from "../services/midi";
+import {
+  connectMidiInput,
+  connectMidiOutput,
+  disconnectMidiInput,
+  disconnectMidiOutput,
+  drainMidiInput,
+  scanMidiDevices,
+  sendControlChange,
+  sendMidiPatch,
+  sendProgramChange,
+  type MidiPort
+} from "../services/midi";
 import type { MidiSettings } from "../domain/midi";
 import {
   buildAutomaticGuideTimeline,
@@ -1236,28 +1247,95 @@ function ToolRail<T extends string>({
 }
 
 function MidiEditor({ settings, sections, onSettingsChange, onSectionsChange }: { settings: MidiSettings; sections: Song["sections"]; onSettingsChange: (settings: MidiSettings) => void; onSectionsChange: (sections: Song["sections"]) => void }) {
-  const [ports, setPorts] = useState<MidiPort[]>([]);
-  const [connected, setConnected] = useState(false);
+  const [inputs, setInputs] = useState<MidiPort[]>([]);
+  const [outputs, setOutputs] = useState<MidiPort[]>([]);
+  const [inputConnected, setInputConnected] = useState(false);
+  const [outputConnected, setOutputConnected] = useState(false);
+  const [lastInput, setLastInput] = useState<number[]>([]);
   const [error, setError] = useState("");
   const [testProgram, setTestProgram] = useState(0);
-  const refresh = useCallback(async () => { try { setPorts(await listMidiOutputs()); setError(""); } catch (e) { setError(e instanceof Error ? e.message : String(e)); } }, []);
+
+  const refresh = useCallback(async () => {
+    try {
+      const devices = await scanMidiDevices();
+      setInputs(devices.inputs);
+      setOutputs(devices.outputs);
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }, []);
+
   useEffect(() => { void refresh(); }, [refresh]);
 
-  async function connect(index: number) {
-    try { const name = await connectMidiOutput(index); onSettingsChange({ ...settings, outputIndex: index, outputName: name }); setConnected(true); setError(""); }
-    catch (e) { setConnected(false); setError(e instanceof Error ? e.message : String(e)); }
+  useEffect(() => {
+    if (!inputConnected) return;
+    const timer = window.setInterval(() => {
+      void drainMidiInput(256)
+        .then((messages) => {
+          const latest = messages.at(-1);
+          if (latest) setLastInput(latest.bytes);
+        })
+        .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)));
+    }, 50);
+    return () => window.clearInterval(timer);
+  }, [inputConnected]);
+
+  async function connectInput(index: number) {
+    try {
+      const name = await connectMidiInput(index);
+      onSettingsChange({ ...settings, inputIndex: index, inputName: name });
+      setInputConnected(true);
+      setError("");
+    } catch (cause) {
+      setInputConnected(false);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
   }
+
+  async function connectOutput(index: number) {
+    try {
+      const name = await connectMidiOutput(index);
+      onSettingsChange({ ...settings, outputIndex: index, outputName: name });
+      setOutputConnected(true);
+      setError("");
+    } catch (cause) {
+      setOutputConnected(false);
+      setError(cause instanceof Error ? cause.message : String(cause));
+    }
+  }
+
   return <section className="midi-editor">
-    <div className="page-head"><div><h1>MIDI</h1><p>Route section changes and manual messages to hardware, IAC or virtual MIDI destinations.</p></div><button onClick={() => void refresh()}>Refresh Devices</button></div>
+    <div className="page-head"><div><h1>MIDI I/O</h1><p>Detect keyboard ports, capture live MIDI and route tracks to hardware destinations.</p></div><button onClick={() => void refresh()}>Rescan MIDI</button></div>
     {error && <div className="error-banner">{error}</div>}
     <div className="midi-grid">
-      <div className="panel"><h2>Output</h2><label><span>Destination</span><select value={settings.outputIndex ?? ""} onChange={(e) => void connect(Number(e.currentTarget.value))}><option value="">Select MIDI output</option>{ports.map((port)=><option key={port.index} value={port.index}>{port.name}</option>)}</select></label><label><span>Default Channel</span><input type="number" min="1" max="16" value={settings.channel} onChange={(e)=>onSettingsChange({...settings,channel:Math.max(1,Math.min(16,Number(e.currentTarget.value)))})}/></label><p>{connected ? "Connected · " + settings.outputName : "Not connected"}</p><button disabled={!connected} onClick={() => void disconnectMidiOutput().then(()=>setConnected(false))}>Disconnect</button></div>
-      <div className="panel"><h2>Test Output</h2><label><span>Program</span><input type="number" min="0" max="127" value={testProgram} onChange={(e)=>setTestProgram(Number(e.currentTarget.value))}/></label><button disabled={!connected} onClick={()=>void sendProgramChange(settings.channel,testProgram)}>Send Program Change</button><button disabled={!connected} onClick={()=>void sendControlChange(settings.channel,1,127)}>Send CC 1 · 127</button></div>
-      <div className="panel midi-section-map"><h2>Section Patches</h2>{sections.map((section,index)=><label key={section.id}><span>{section.name}</span><input value={section.midiPatch ?? ""} placeholder={"e.g. 12@" + settings.channel} onChange={(e)=>onSectionsChange(sections.map((item,i)=>i===index?{...item,midiPatch:e.currentTarget.value||undefined}:item))}/><button disabled={!connected || !section.midiPatch} onClick={()=>section.midiPatch && void sendMidiPatch(section.midiPatch)}>Test</button></label>)}</div>
+      <div className="panel">
+        <h2>Input</h2>
+        <label><span>Controller / Keyboard</span><select value={settings.inputIndex ?? ""} onChange={(event) => void connectInput(Number(event.currentTarget.value))}><option value="">Select MIDI input</option>{inputs.map((port)=><option key={port.index + ":" + port.name} value={port.index}>{port.name}</option>)}</select></label>
+        <p>{inputConnected ? "Listening · " + settings.inputName : "Not listening"}</p>
+        <p>{lastInput.length ? "Last MIDI: " + lastInput.map(byte => byte.toString(16).padStart(2, "0").toUpperCase()).join(" ") : "Play a note to verify input."}</p>
+        <button disabled={!inputConnected} onClick={() => void disconnectMidiInput().then(()=>{setInputConnected(false);setLastInput([]);})}>Disconnect Input</button>
+      </div>
+      <div className="panel">
+        <h2>Output</h2>
+        <label><span>Destination</span><select value={settings.outputIndex ?? ""} onChange={(event) => void connectOutput(Number(event.currentTarget.value))}><option value="">Select MIDI output</option>{outputs.map((port)=><option key={port.index + ":" + port.name} value={port.index}>{port.name}</option>)}</select></label>
+        <label><span>Default Channel</span><input type="number" min="1" max="16" value={settings.channel} onChange={(event)=>onSettingsChange({...settings,channel:Math.max(1,Math.min(16,Number(event.currentTarget.value)))})}/></label>
+        <p>{outputConnected ? "Connected · " + settings.outputName : "Not connected"}</p>
+        <button disabled={!outputConnected} onClick={() => void disconnectMidiOutput().then(()=>setOutputConnected(false))}>Disconnect Output</button>
+      </div>
+      <div className="panel">
+        <h2>Test Output</h2>
+        <label><span>Program</span><input type="number" min="0" max="127" value={testProgram} onChange={(event)=>setTestProgram(Number(event.currentTarget.value))}/></label>
+        <button disabled={!outputConnected} onClick={()=>void sendProgramChange(settings.channel,testProgram)}>Send Program Change</button>
+        <button disabled={!outputConnected} onClick={()=>void sendControlChange(settings.channel,1,127)}>Send CC 1 · 127</button>
+      </div>
+      <div className="panel midi-section-map">
+        <h2>Section Patches</h2>
+        {sections.map((section,index)=><label key={section.id}><span>{section.name}</span><input value={section.midiPatch ?? ""} placeholder={"e.g. 12@" + settings.channel} onChange={(event)=>onSectionsChange(sections.map((item,i)=>i===index?{...item,midiPatch:event.currentTarget.value||undefined}:item))}/><button disabled={!outputConnected || !section.midiPatch} onClick={()=>section.midiPatch && void sendMidiPatch(section.midiPatch)}>Test</button></label>)}
+      </div>
     </div>
   </section>;
 }
-
 function VideoEditor({ program, sections, positionSeconds, playing, sectionId, onChange }: { program?: VideoProgram; sections: Song["sections"]; positionSeconds: number; playing: boolean; sectionId?: string; onChange: (program: VideoProgram) => void }) {
   const value: VideoProgram = program ?? { clips: [], output: { displayEnabled: false, ndiEnabled: false, ndiName: "LumaRig Studio Program" } };
   const [selectedId, setSelectedId] = useState<string | null>(value.clips[0]?.id ?? null);
@@ -3156,6 +3234,24 @@ function SettingsPage({ audio }: { audio: AudioEngineController }) {
       <div className="settings-grid">
         <div className="panel settings-card">
           <h3>Audio Engine</h3>
+          <label>
+            <span>Output Device</span>
+            <select
+              value={audio.status.deviceName ?? ""}
+              disabled={audio.busy || Boolean(audio.status.playing) || Boolean(audio.status.transitionActive)}
+              onChange={(event) => {
+                const name = event.currentTarget.value;
+                if (name) void audio.selectOutputDevice(name);
+              }}
+            >
+              <option value="">Select output</option>
+              {audio.outputDevices.map((device) => (
+                <option key={device.name} value={device.name}>
+                  {device.name}{device.isDefault ? " · System Default" : ""}
+                </option>
+              ))}
+            </select>
+          </label>
           <Field
             label="Sample Rate"
             value={audio.status.sampleRate
@@ -3163,13 +3259,17 @@ function SettingsPage({ audio }: { audio: AudioEngineController }) {
               : "Device default"}
           />
           <Field
-            label="Audio Device"
-            value={audio.status.deviceName ?? "Not initialized"}
+            label="Channels"
+            value={String(audio.status.outputChannels ?? 0)}
           />
           <Field
             label="Loaded Tracks"
             value={String(audio.status.loadedTracks ?? 0)}
           />
+          <button disabled={audio.busy} onClick={() => void audio.refreshOutputDevices()}>
+            Rescan Audio Devices
+          </button>
+          {audio.error && <p className="audio-error" role="alert">{audio.error}</p>}
         </div>
 
         <div className="panel settings-card">
@@ -3185,13 +3285,12 @@ function SettingsPage({ audio }: { audio: AudioEngineController }) {
 
         <div className="panel settings-card">
           <h3>Performance Safety</h3>
-          <p>Check the audio device, loaded stems, count-in route and external connections before a service. A performance lock is not currently enforced.</p>
+          <p>Stop playback before switching audio devices. LumaStudio reloads the current multitrack after the native engine changes devices so a switch between an interface and a USB keyboard does not silently detach the song.</p>
         </div>
       </div>
     </section>
   );
 }
-
 function UtilityPage({
   title,
   text,
