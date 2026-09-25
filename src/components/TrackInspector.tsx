@@ -14,6 +14,7 @@ import {
 import {
   getAudioUnitParameters,
   loadAudioUnitInstrument,
+  openAudioUnitEditor,
   saveAudioUnitState,
   scanAudioUnits,
   setAudioUnitParameter,
@@ -500,6 +501,17 @@ export function TrackInspector({
                     <button onClick={() => void testInstrumentNote()}>
                       Test C4
                     </button>
+                    {activePlugin?.hasCustomView && (
+                      <button
+                        onClick={() =>
+                          void openAudioUnitEditor().catch((cause) =>
+                            setError(messageOf(cause))
+                          )
+                        }
+                      >
+                        Open Plug-in UI
+                      </button>
+                    )}
                     <button onClick={() => void refreshParameters()}>
                       Refresh Controls
                     </button>
