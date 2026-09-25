@@ -41,6 +41,15 @@ export function createMidiTrack(
   };
 }
 
+export function createSoftwareInstrumentTrack(name = "Software Instrument"): Track {
+  return {
+    ...baseTrack(name, "midi", "#8b5cf6"),
+    sourceType: "instrument",
+    midiClips: [],
+    effects: []
+  };
+}
+
 export function createPadInstrumentTrack(name = "Pads"): Track {
   const padInstrument: PadInstrumentData = { slots: [] };
   return {
