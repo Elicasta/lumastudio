@@ -44,6 +44,8 @@ pub fn run() {
             audio::audio_instrument_set_parameter,
             audio::audio_instrument_save_state,
             audio::audio_instrument_send_midi,
+            audio::audio_instrument_set_timeline,
+            audio::audio_instrument_clear_timeline,
             audio::audio_load_pad,
             audio::audio_trigger_pad,
             audio::audio_release_pad,
