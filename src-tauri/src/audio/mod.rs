@@ -55,6 +55,15 @@ pub fn audio_instrument_unload(
 }
 
 #[tauri::command]
+pub fn audio_instrument_open_editor(
+    service: State<'_, AudioService>,
+) -> Result<(), String> {
+    service
+        .open_instrument_editor()
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub fn audio_instrument_parameters(
     service: State<'_, AudioService>,
 ) -> Result<Value, String> {
