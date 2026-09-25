@@ -1,4 +1,6 @@
 #import <Foundation/Foundation.h>
+#import <Cocoa/Cocoa.h>
+#import <AudioUnit/AUCocoaUIView.h>
 #import <AVFoundation/AVFoundation.h>
 #import <AudioToolbox/AudioToolbox.h>
 #import <AudioUnit/AudioUnit.h>
@@ -8,6 +10,7 @@ typedef struct {
     AudioComponentDescription desc;
     Float64 sampleTime;
     UInt32 maxFrames;
+    void *editorWindow;
 } LumaAUInstance;
 
 static char *copy_utf8(NSString *value) {
@@ -194,11 +197,125 @@ LumaAUInstance *luma_au_create(
 
 void luma_au_destroy(LumaAUInstance *instance) {
     if (!instance) return;
+
+    if (instance->editorWindow) {
+        NSWindow *window = (__bridge_transfer NSWindow *)instance->editorWindow;
+        instance->editorWindow = NULL;
+        void (^closeWindow)(void) = ^{
+            [window close];
+        };
+        if ([NSThread isMainThread]) closeWindow();
+        else dispatch_async(dispatch_get_main_queue(), closeWindow);
+    }
+
     if (instance->unit) {
         AudioUnitUninitialize(instance->unit);
         AudioComponentInstanceDispose(instance->unit);
     }
     free(instance);
+}
+
+int32_t luma_au_open_editor(LumaAUInstance *instance) {
+    if (!instance || !instance->unit) return kAudio_ParamError;
+
+    __block OSStatus result = noErr;
+    void (^openEditor)(void) = ^{
+        if (instance->editorWindow) {
+            NSWindow *existing = (__bridge NSWindow *)instance->editorWindow;
+            [existing makeKeyAndOrderFront:nil];
+            return;
+        }
+
+        UInt32 size = 0;
+        Boolean writable = false;
+        OSStatus status = AudioUnitGetPropertyInfo(
+            instance->unit,
+            kAudioUnitProperty_CocoaUI,
+            kAudioUnitScope_Global,
+            0,
+            &size,
+            &writable
+        );
+        if (status != noErr || size < sizeof(AudioUnitCocoaViewInfo)) {
+            result = status != noErr ? status : kAudio_ParamError;
+            return;
+        }
+
+        AudioUnitCocoaViewInfo *info = (AudioUnitCocoaViewInfo *)malloc(size);
+        if (!info) {
+            result = memFullErr;
+            return;
+        }
+
+        status = AudioUnitGetProperty(
+            instance->unit,
+            kAudioUnitProperty_CocoaUI,
+            kAudioUnitScope_Global,
+            0,
+            info,
+            &size
+        );
+        if (status != noErr) {
+            free(info);
+            result = status;
+            return;
+        }
+
+        CFBundleRef bundle = CFBundleCreate(
+            kCFAllocatorDefault,
+            info->mCocoaAUViewBundleLocation
+        );
+        if (!bundle || !CFBundleLoadExecutable(bundle)) {
+            if (bundle) CFRelease(bundle);
+            free(info);
+            result = kAudio_ParamError;
+            return;
+        }
+
+        NSString *className = (__bridge NSString *)info->mCocoaAUViewClass[0];
+        Class factoryClass = NSClassFromString(className);
+        id factory = factoryClass ? [[factoryClass alloc] init] : nil;
+        NSView *view = nil;
+        if (factory && [factory conformsToProtocol:@protocol(AudioUnitCocoaViewFactory)]) {
+            view = [(id<AudioUnitCocoaViewFactory>)factory
+                uiViewForAudioUnit:instance->unit
+                withSize:NSMakeSize(0, 0)];
+        }
+
+        if (!view) {
+            CFRelease(bundle);
+            free(info);
+            result = kAudio_ParamError;
+            return;
+        }
+
+        NSSize preferred = view.fittingSize;
+        if (preferred.width < 320) preferred.width = MAX(640, view.frame.size.width);
+        if (preferred.height < 200) preferred.height = MAX(480, view.frame.size.height);
+
+        NSWindow *window = [[NSWindow alloc]
+            initWithContentRect:NSMakeRect(0, 0, preferred.width, preferred.height)
+            styleMask:(NSWindowStyleMaskTitled |
+                       NSWindowStyleMaskClosable |
+                       NSWindowStyleMaskResizable |
+                       NSWindowStyleMaskMiniaturizable)
+            backing:NSBackingStoreBuffered
+            defer:NO];
+
+        window.title = @"LumaStudio Instrument";
+        window.contentView = view;
+        [window center];
+        [window makeKeyAndOrderFront:nil];
+        instance->editorWindow = (__bridge_retained void *)window;
+
+        CFRelease(bundle);
+        free(info);
+    };
+
+    if ([NSThread isMainThread]) openEditor();
+    else dispatch_sync(dispatch_get_main_queue(), openEditor);
+
+    return result;
 }
 
 int32_t luma_au_send_midi(
