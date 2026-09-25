@@ -40,6 +40,7 @@ pub fn run() {
             audio::audio_unit_scan,
             audio::audio_instrument_load,
             audio::audio_instrument_unload,
+            audio::audio_instrument_open_editor,
             audio::audio_instrument_parameters,
             audio::audio_instrument_set_parameter,
             audio::audio_instrument_save_state,
