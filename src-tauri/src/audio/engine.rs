@@ -403,11 +403,12 @@ impl AudioEngine {
     pub fn play(&self) {
         self.realtime.transition.cancel();
         let mix = self.realtime.mix.load();
-        if mix.duration_frames == 0 {
+        let has_instrument = self.realtime.instrument.load().is_some();
+        if mix.duration_frames == 0 && !has_instrument {
             return;
         }
 
-        if self.realtime.transport.frame() >= mix.duration_frames {
+        if mix.duration_frames > 0 && self.realtime.transport.frame() >= mix.duration_frames {
             self.realtime.transport.seek_frame(0);
         }
 
