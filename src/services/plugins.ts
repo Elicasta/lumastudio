@@ -44,6 +44,10 @@ export async function unloadAudioUnitInstrument(): Promise<NativeAudioStatus> {
   return invoke<NativeAudioStatus>("audio_instrument_unload");
 }
 
+export async function openAudioUnitEditor(): Promise<void> {
+  return invoke<void>("audio_instrument_open_editor");
+}
+
 export async function getAudioUnitParameters(): Promise<AudioUnitParameter[]> {
   return invoke<AudioUnitParameter[]>("audio_instrument_parameters");
 }
