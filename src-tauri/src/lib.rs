@@ -12,9 +12,10 @@ use tauri::{webview::WebviewWindowBuilder, WebviewUrl};
 pub fn run() {
     let media_bus=media_bus::MediaBus::default();
     media_bus.start();
+    let live_midi = midi::new_live_midi_queue();
     tauri::Builder::default()
-        .manage(AudioService::default())
-        .manage(midi::MidiService::default())
+        .manage(AudioService::new(live_midi.clone()))
+        .manage(midi::MidiService::new(live_midi))
         .manage(media_bus)
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
@@ -36,6 +37,13 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             audio::audio_initialize,
+            audio::audio_unit_scan,
+            audio::audio_instrument_load,
+            audio::audio_instrument_unload,
+            audio::audio_instrument_parameters,
+            audio::audio_instrument_set_parameter,
+            audio::audio_instrument_save_state,
+            audio::audio_instrument_send_midi,
             audio::audio_load_pad,
             audio::audio_trigger_pad,
             audio::audio_release_pad,
